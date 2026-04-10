@@ -1,0 +1,196 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  schemas  = ["we-crm"]
+}
+
+// ── Better Auth tables ─────────────────────────────────────────────
+
+model User {
+  id            String    @id
+  name          String
+  email         String
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  role          String?
+  banned        Boolean   @default(false)
+  banReason     String?
+  banExpires    DateTime?
+  sessions      Session[]
+  accounts      Account[]
+
+  contacts     Contact[]
+  contactLists ContactList[]
+
+  members         Member[]
+  invitationsSent Invitation[] @relation("invitations_sent")
+
+  @@unique([email])
+  @@map("user")
+  @@schema("we-crm")
+}
+
+model Session {
+  id                   String   @id
+  expiresAt            DateTime
+  token                String
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  ipAddress            String?
+  userAgent            String?
+  userId               String
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  impersonatedBy       String?
+  activeOrganizationId String?
+
+  @@unique([token])
+  @@index([userId])
+  @@map("session")
+  @@schema("we-crm")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("account")
+  @@schema("we-crm")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+  @@schema("we-crm")
+}
+
+// ── Organization tables ────────────────────────────────────────────
+
+model Organization {
+  id        String   @id
+  name      String
+  slug      String?
+  logo      String?
+  createdAt DateTime @default(now())
+  metadata  String?
+
+  members     Member[]
+  invitations Invitation[]
+
+  contacts     Contact[]
+  contactLists ContactList[]
+
+  @@map("organization")
+  @@schema("we-crm")
+}
+
+model Member {
+  id             String       @id
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           String
+  createdAt      DateTime     @default(now())
+
+  @@map("member")
+  @@schema("we-crm")
+}
+
+model Invitation {
+  id             String       @id
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  email          String
+  role           String?
+  status         String
+  expiresAt      DateTime
+  createdAt      DateTime     @default(now())
+  inviterId      String
+  inviter        User         @relation("invitations_sent", fields: [inviterId], references: [id], onDelete: Cascade)
+
+  @@map("invitation")
+  @@schema("we-crm")
+}
+
+// ── CRM tables ─────────────────────────────────────────────────────
+
+model Contact {
+  id        String   @id
+  firstName String
+  lastName  String?
+  email     String?
+  phone     String?
+  company   String?
+  jobTitle  String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  listEntries ContactListEntry[]
+
+  @@map("contact")
+  @@schema("we-crm")
+}
+
+model ContactList {
+  id          String   @id
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  entries ContactListEntry[]
+
+  @@map("contact_list")
+  @@schema("we-crm")
+}
+
+model ContactListEntry {
+  id            String      @id
+  contactListId String
+  contactList   ContactList @relation(fields: [contactListId], references: [id], onDelete: Cascade)
+  contactId     String
+  contact       Contact     @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  addedAt       DateTime    @default(now())
+
+  @@unique([contactListId, contactId])
+  @@map("contact_list_entry")
+  @@schema("we-crm")
+}

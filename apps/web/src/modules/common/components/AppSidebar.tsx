@@ -9,7 +9,7 @@ import {
   SidebarHeader,
   SidebarRail,
 } from "@repo/ui/components/ui/sidebar";
-import { Contact, List, Users } from "lucide-react";
+import { Building2, Contact, List, Users } from "lucide-react";
 import * as React from "react";
 import { useMemo } from "react";
 
@@ -31,7 +31,9 @@ export default function AppSidebar({
   ...props
 }: React.ComponentProps<typeof Sidebar>) {
   const { user, logout } = useAuth();
-  const isAdmin = user?.role.includes("admin");
+  const isAdmin = Array.isArray(user?.role)
+    ? user.role.includes("admin")
+    : user?.role === "admin";
 
   const navUser = useMemo(
     () => [
@@ -54,6 +56,21 @@ export default function AppSidebar({
           {
             title: "All Lists",
             url: "/lists",
+          },
+        ],
+      },
+      {
+        title: "Prospecting",
+        url: "/leads",
+        icon: Building2,
+        items: [
+          {
+            title: "Leads",
+            url: "/leads",
+          },
+          {
+            title: "Companies",
+            url: "/companies",
           },
         ],
       },

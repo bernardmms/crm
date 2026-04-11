@@ -15,6 +15,7 @@
     "@repo/api-contract": "workspace:^",
     "@repo/typescript-config": "workspace:^",
     "@repo/ui": "workspace:^",
+    "@supabase/supabase-js": "^2.103.0",
     "@tailwindcss/vite": "^4.1.18",
     "@ts-rest/core": "^3.52.1",
     "better-auth": "1.5.3",

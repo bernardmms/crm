@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { Contact, List } from "lucide-react";
+import { Building2, Contact, List, UserRoundSearch } from "lucide-react";
 import {
   Card,
   CardHeader,
@@ -19,6 +19,18 @@ const navCards = [
     description: "Organize contacts into lists",
     href: "/lists",
     icon: List,
+  },
+  {
+    title: "Leads",
+    description: "Browse imported prospects and decision makers",
+    href: "/leads",
+    icon: UserRoundSearch,
+  },
+  {
+    title: "Companies",
+    description: "Review company intelligence and enrichment data",
+    href: "/companies",
+    icon: Building2,
   },
 ];
 

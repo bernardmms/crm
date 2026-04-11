@@ -11,6 +11,7 @@ import { AdminModule } from 'src/admin/admin.module';
 import { ContactModule } from 'src/contact/contact.module';
 import { ContactListModule } from 'src/contact-list/contact-list.module';
 import { OrganizationModule } from 'src/organization/organization.module';
+import { CampaignDataModule } from 'src/campaign-data/campaign-data.module';
 import { PrismaExceptionFilter } from 'src/prisma/prisma-exception.filter';
 import z from 'zod';
 
@@ -52,6 +53,7 @@ const validate = (config: Record<string, unknown>) => {
     ContactModule,
     ContactListModule,
     OrganizationModule,
+    CampaignDataModule,
   ],
   controllers: [AppController],
   providers: [

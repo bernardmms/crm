@@ -9,6 +9,8 @@ import HomePage from "@/modules/common/pages/HomePage";
 import ContactsPage from "@/modules/contacts/pages/ContactsPage";
 import ContactListsPage from "@/modules/contact-lists/pages/ContactListsPage";
 import UsersPage from "@/modules/admin/users/UsersPage";
+import LeadsPage from "@/modules/prospecting/pages/LeadsPage";
+import CompaniesPage from "@/modules/prospecting/pages/CompaniesPage";
 import { NewOrganizationPage } from "@/modules/organizations/pages/NewOrganizationPage";
 import { OrgSettingsPage } from "@/modules/organizations/pages/OrgSettingsPage";
 import NotFoundPage from "@/modules/common/pages/NotFoundPage";
@@ -23,6 +25,8 @@ createRoot(document.getElementById("root")!).render(
             <Route index element={<HomePage />} />
             <Route path="/contacts" element={<ContactsPage />} />
             <Route path="/lists" element={<ContactListsPage />} />
+            <Route path="/leads" element={<LeadsPage />} />
+            <Route path="/companies" element={<CompaniesPage />} />
             <Route path="/admin/users" element={<UsersPage />} />
             <Route
               path="/organizations/new"

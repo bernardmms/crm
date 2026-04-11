@@ -14,7 +14,7 @@
   },
   "scripts": {
     "check-types": "tsc --noEmit",
-    "build": "rm -rf dist && tsc -p tsconfig.esm.json && tsc -p tsconfig.cjs.json"
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.esm.json && tsc -p tsconfig.cjs.json"
   },
   "dependencies": {
     "@ts-rest/core": "^3.52.1",

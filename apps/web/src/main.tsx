@@ -9,9 +9,12 @@ import HomePage from "@/modules/common/pages/HomePage";
 import ContactsPage from "@/modules/contacts/pages/ContactsPage";
 import ContactListsPage from "@/modules/contact-lists/pages/ContactListsPage";
 import UsersPage from "@/modules/admin/users/UsersPage";
+import CampaignsPage from "@/modules/prospecting/pages/CampaignsPage";
+import ProspectingSearchPage from "@/modules/prospecting/pages/ProspectingSearchPage";
 import { NewOrganizationPage } from "@/modules/organizations/pages/NewOrganizationPage";
 import { OrgSettingsPage } from "@/modules/organizations/pages/OrgSettingsPage";
 import NotFoundPage from "@/modules/common/pages/NotFoundPage";
+import { Navigate } from "react-router";
 import "./index.css";
 
 createRoot(document.getElementById("root")!).render(
@@ -23,6 +26,16 @@ createRoot(document.getElementById("root")!).render(
             <Route index element={<HomePage />} />
             <Route path="/contacts" element={<ContactsPage />} />
             <Route path="/lists" element={<ContactListsPage />} />
+            <Route path="/prospecting/campaigns" element={<CampaignsPage />} />
+            <Route path="/prospecting/search" element={<ProspectingSearchPage />} />
+            <Route
+              path="/leads"
+              element={<Navigate replace to="/prospecting/search?tab=leads" />}
+            />
+            <Route
+              path="/companies"
+              element={<Navigate replace to="/prospecting/search?tab=companies" />}
+            />
             <Route path="/admin/users" element={<UsersPage />} />
             <Route
               path="/organizations/new"

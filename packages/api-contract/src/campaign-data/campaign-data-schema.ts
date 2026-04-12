@@ -63,6 +63,8 @@ export const listCampaignCompaniesQuerySchema = z.object({
   country: z.string().optional(),
   industry: z.string().optional(),
   revenue: z.string().optional(),
+  employeeCountMin: z.coerce.number().optional(),
+  employeeCountMax: z.coerce.number().optional(),
 });
 
 export const listCampaignPeopleQuerySchema = z.object({

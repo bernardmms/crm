@@ -12,7 +12,6 @@ import { Button } from "@repo/ui/components/ui/button";
 import {
     Dialog,
     DialogContent,
-    DialogDescription,
     DialogFooter,
     DialogHeader,
     DialogTitle,

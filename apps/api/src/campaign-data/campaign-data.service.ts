@@ -212,9 +212,19 @@ export class CampaignDataService {
     }
 
     const industryFilter = this.sanitizeSearchTerm(query?.industry)?.toLowerCase();
+    const rawEmployeeCountMin = this.normalizeOptionalInteger(query?.employeeCountMin);
+    const rawEmployeeCountMax = this.normalizeOptionalInteger(query?.employeeCountMax);
+    const [employeeCountMin, employeeCountMax] = this.normalizeMinMax(
+      rawEmployeeCountMin,
+      rawEmployeeCountMax,
+    );
+    const requiresInMemoryFiltering =
+      Boolean(industryFilter) ||
+      employeeCountMin != null ||
+      employeeCountMax != null;
 
     try {
-      if (industryFilter) {
+      if (requiresInMemoryFiltering) {
         params.set('limit', '10000');
         params.set('offset', '0');
 
@@ -225,11 +235,25 @@ export class CampaignDataService {
           false,
         );
 
-        const filtered = raw.rows.filter((row) =>
-          this.normalizeIndustries(row.company_industries).some((industry) =>
-            industry.toLowerCase().includes(industryFilter),
-          ),
-        );
+        const filtered = raw.rows.filter((row) => {
+          const industryMatches = !industryFilter
+            ? true
+            : this.normalizeIndustries(row.company_industries).some((industry) =>
+                industry.toLowerCase().includes(industryFilter),
+              );
+
+          const employeeCount = row.company_employee_count;
+          const minMatches =
+            employeeCountMin == null
+              ? true
+              : employeeCount != null && employeeCount >= employeeCountMin;
+          const maxMatches =
+            employeeCountMax == null
+              ? true
+              : employeeCount != null && employeeCount <= employeeCountMax;
+
+          return industryMatches && minMatches && maxMatches;
+        });
 
         const pageRows = filtered.slice(offset, offset + limit);
         return {
@@ -501,6 +525,19 @@ export class CampaignDataService {
   private normalizeLimit(value?: number) {
     if (!value || Number.isNaN(value)) return 20;
     return Math.min(100, Math.max(1, Math.floor(value)));
+  }
+
+  private normalizeOptionalInteger(value?: number) {
+    if (value == null || Number.isNaN(value)) return undefined;
+    return Math.max(0, Math.floor(value));
+  }
+
+  private normalizeMinMax(minValue?: number, maxValue?: number) {
+    if (minValue == null || maxValue == null || minValue <= maxValue) {
+      return [minValue, maxValue] as const;
+    }
+
+    return [maxValue, minValue] as const;
   }
 
   private escapePostgrestValue(value: string) {

@@ -126,13 +126,14 @@ export default function LeadsPage() {
       });
 
       if (response.status !== 200) {
-        toast.error(response.body.message);
+        toast.error(getApiErrorMessage(response.body, "Failed to load campaigns"));
         return;
       }
 
-      setCampaigns(response.body.campaigns);
-      if (response.body.campaigns.length > 0) {
-        setSelectedCampaignId(String(response.body.campaigns[0].id));
+      const body = response.body as { campaigns: CampaignRecord[] };
+      setCampaigns(body.campaigns);
+      if (body.campaigns.length > 0) {
+        setSelectedCampaignId(String(body.campaigns[0].id));
       }
     } catch (error) {
       console.error(error);
@@ -159,12 +160,13 @@ export default function LeadsPage() {
       });
 
       if (response.status !== 200) {
-        toast.error(response.body.message);
+        toast.error(getApiErrorMessage(response.body, "Failed to load leads"));
         return;
       }
 
-      setPeople(response.body.people);
-      setTotal(response.body.total);
+      const body = response.body as { people: PersonRecord[]; total: number };
+      setPeople(body.people);
+      setTotal(body.total);
     } catch (error) {
       console.error(error);
       toast.error("Failed to load leads");
@@ -414,3 +416,15 @@ function normalize(value?: string) {
   return normalized || undefined;
 }
 
+function getApiErrorMessage(body: unknown, fallback: string) {
+  if (
+    body &&
+    typeof body === "object" &&
+    "message" in body &&
+    typeof body.message === "string"
+  ) {
+    return body.message;
+  }
+
+  return fallback;
+}

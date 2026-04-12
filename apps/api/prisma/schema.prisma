@@ -26,6 +26,7 @@ model User {
 
   contacts     Contact[]
   contactLists ContactList[]
+  emailCampaigns EmailCampaign[]
 
   members         Member[]
   invitationsSent Invitation[] @relation("invitations_sent")
@@ -103,6 +104,7 @@ model Organization {
 
   contacts     Contact[]
   contactLists ContactList[]
+  emailCampaigns EmailCampaign[]
 
   @@map("organization")
   @@schema("we-crm")
@@ -157,7 +159,8 @@ model Contact {
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  listEntries ContactListEntry[]
+  listEntries    ContactListEntry[]
+  campaignEmails EmailCampaignContact[]
 
   @@map("contact")
   @@schema("we-crm")
@@ -176,7 +179,8 @@ model ContactList {
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  entries ContactListEntry[]
+  entries        ContactListEntry[]
+  emailCampaigns EmailCampaign[]
 
   @@map("contact_list")
   @@schema("we-crm")
@@ -192,5 +196,68 @@ model ContactListEntry {
 
   @@unique([contactListId, contactId])
   @@map("contact_list_entry")
+  @@schema("we-crm")
+}
+
+// ── Email Campaign tables ──────────────────────────────────────────
+
+enum EmailCampaignStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  SENT
+  FAILED
+
+  @@schema("we-crm")
+}
+
+enum EmailSendStatus {
+  PENDING
+  SENT
+  FAILED
+  BOUNCED
+
+  @@schema("we-crm")
+}
+
+model EmailCampaign {
+  id            String              @id
+  name          String
+  subject       String
+  htmlContent   String
+  status        EmailCampaignStatus @default(DRAFT)
+  scheduledAt   DateTime?
+  sentAt        DateTime?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  contactListId String
+  contactList   ContactList @relation(fields: [contactListId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  recipients EmailCampaignContact[]
+
+  @@map("email_campaign")
+  @@schema("we-crm")
+}
+
+model EmailCampaignContact {
+  id              String          @id
+  emailCampaignId String
+  emailCampaign   EmailCampaign   @relation(fields: [emailCampaignId], references: [id], onDelete: Cascade)
+  contactId       String
+  contact         Contact         @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  status          EmailSendStatus @default(PENDING)
+  sentAt          DateTime?
+  errorMessage    String?
+  createdAt       DateTime        @default(now())
+
+  @@unique([emailCampaignId, contactId])
+  @@map("email_campaign_contact")
   @@schema("we-crm")
 }

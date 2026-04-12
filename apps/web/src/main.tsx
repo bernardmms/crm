@@ -13,6 +13,7 @@ import CampaignsPage from "@/modules/prospecting/pages/CampaignsPage";
 import ProspectingSearchPage from "@/modules/prospecting/pages/ProspectingSearchPage";
 import { NewOrganizationPage } from "@/modules/organizations/pages/NewOrganizationPage";
 import { OrgSettingsPage } from "@/modules/organizations/pages/OrgSettingsPage";
+import EmailCampaignsPage from "@/modules/email-campaigns/pages/EmailCampaignsPage";
 import NotFoundPage from "@/modules/common/pages/NotFoundPage";
 import { Navigate } from "react-router";
 import "./index.css";
@@ -26,6 +27,7 @@ createRoot(document.getElementById("root")!).render(
             <Route index element={<HomePage />} />
             <Route path="/contacts" element={<ContactsPage />} />
             <Route path="/lists" element={<ContactListsPage />} />
+            <Route path="/email" element={<EmailCampaignsPage />} />
             <Route path="/prospecting/campaigns" element={<CampaignsPage />} />
             <Route path="/prospecting/search" element={<ProspectingSearchPage />} />
             <Route

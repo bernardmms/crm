@@ -4,12 +4,14 @@ import { adminContract } from "./src/admin/admin-contract";
 import { contactContract } from "./src/contact/contact-contract";
 import { contactListContract } from "./src/contact-list/contact-list-contract";
 import { campaignDataContract } from "./src/campaign-data/campaign-data-contract";
+import { emailCampaignContract } from "./src/email-campaign/email-campaign-contract";
 
 export * from "./src/auth/auth-schema";
 export * from "./src/admin/admin-schema";
 export * from "./src/contact/contact-schema";
 export * from "./src/contact-list/contact-list-schema";
 export * from "./src/campaign-data/campaign-data-schema";
+export * from "./src/email-campaign/email-campaign-schema";
 export { userSchema } from "./src/user-schema";
 export * from "./src/validation-error-schema";
 
@@ -20,4 +22,5 @@ export const contract = c.router({
   contactContract,
   contactListContract,
   campaignDataContract,
+  emailCampaignContract,
 });

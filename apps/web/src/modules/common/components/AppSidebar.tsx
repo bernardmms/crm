@@ -12,7 +12,7 @@ import {
   SidebarHeader,
   SidebarRail,
 } from "@repo/ui/components/ui/sidebar";
-import { Contact, List, Search, Target, Users } from "lucide-react";
+import { Contact, List, Mail, Search, Target, Users } from "lucide-react";
 import * as React from "react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -78,6 +78,17 @@ export default function AppSidebar({
           {
             title: "All Lists",
             url: "/lists",
+          },
+        ],
+      },
+      {
+        title: "Email",
+        url: "/email",
+        icon: Mail,
+        items: [
+          {
+            title: "All Campaigns",
+            url: "/email",
           },
         ],
       },

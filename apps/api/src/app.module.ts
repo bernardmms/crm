@@ -4,6 +4,7 @@ import { AppService } from './app.service';
 
 import { ConfigModule } from '@nestjs/config';
 import { APP_FILTER } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
 
 import { TsRestModule } from '@ts-rest/nest';
 import { AuthModule } from 'src/auth/auth.module';
@@ -12,6 +13,7 @@ import { ContactModule } from 'src/contact/contact.module';
 import { ContactListModule } from 'src/contact-list/contact-list.module';
 import { OrganizationModule } from 'src/organization/organization.module';
 import { CampaignDataModule } from 'src/campaign-data/campaign-data.module';
+import { EmailCampaignModule } from 'src/email-campaign/email-campaign.module';
 import { PrismaExceptionFilter } from 'src/prisma/prisma-exception.filter';
 import z from 'zod';
 
@@ -48,12 +50,14 @@ const validate = (config: Record<string, unknown>) => {
       validateRequestBody: true,
       isGlobal: true,
     }),
+    ScheduleModule.forRoot(),
     AuthModule,
     AdminModule,
     ContactModule,
     ContactListModule,
     OrganizationModule,
     CampaignDataModule,
+    EmailCampaignModule,
   ],
   controllers: [AppController],
   providers: [

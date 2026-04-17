@@ -8,6 +8,8 @@ import {
   updateEmailCampaignRequestSchema,
   scheduleEmailCampaignRequestSchema,
   listEmailCampaignsResponseSchema,
+  generateEmailRequestSchema,
+  generateEmailResponseSchema,
 } from "./email-campaign-schema";
 import { validationErrorResponseSchema } from "../validation-error-schema";
 
@@ -88,5 +90,16 @@ export const emailCampaignContract = c.router({
     body: scheduleEmailCampaignRequestSchema,
     pathParams: emailCampaignIdPathSchema,
     summary: "Schedule an email campaign for later",
+  },
+  generateEmailContent: {
+    method: "POST",
+    path: "/email-campaigns/generate-ai",
+    responses: {
+      200: generateEmailResponseSchema,
+      400: z.object({ message: z.string() }),
+      500: z.object({ message: z.string() }),
+    },
+    body: generateEmailRequestSchema,
+    summary: "Generate email HTML content using AI",
   },
 });

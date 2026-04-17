@@ -7,6 +7,7 @@ import { User } from 'src/auth/decorators/user.decorator';
 import { ActiveOrg } from 'src/lib/active-org.decorator';
 import { OrganizationService } from 'src/organization/organization.service';
 import { EmailCampaignService } from './email-campaign.service';
+import { AiEmailService } from './ai-email.service';
 
 @Controller()
 @Roles(['user', 'admin'])
@@ -14,6 +15,7 @@ export class EmailCampaignController {
   constructor(
     private readonly emailCampaignService: EmailCampaignService,
     private readonly orgService: OrganizationService,
+    private readonly aiEmailService: AiEmailService,
   ) {}
 
   @TsRestHandler(contract.emailCampaignContract.listEmailCampaigns)
@@ -160,6 +162,24 @@ export class EmailCampaignController {
           orgContext,
           body.scheduledAt,
         );
+      },
+    );
+  }
+
+  @TsRestHandler(contract.emailCampaignContract.generateEmailContent)
+  async generateEmailContent() {
+    return tsRestHandler(
+      contract.emailCampaignContract.generateEmailContent,
+      async ({ body }) => {
+        try {
+          const result = await this.aiEmailService.generateEmailContent(body);
+          return { status: 200 as const, body: result };
+        } catch {
+          return {
+            status: 500 as const,
+            body: { message: 'Failed to generate email content' },
+          };
+        }
       },
     );
   }

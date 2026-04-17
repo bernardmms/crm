@@ -87,6 +87,28 @@ export const emailCampaignIdPathSchema = z.object({
   id: z.string(),
 });
 
+export const emailToneEnum = z.enum([
+  "professional",
+  "friendly",
+  "casual",
+  "urgent",
+  "formal",
+]);
+
+export const generateEmailRequestSchema = z.object({
+  purpose: z.string().min(1, "Email purpose is required"),
+  targetAudience: z.string().min(1, "Target audience is required"),
+  keyMessage: z.string().min(1, "Key message is required"),
+  tone: emailToneEnum,
+  companyName: z.string().min(1, "Company name is required"),
+  additionalNotes: z.string().optional(),
+});
+
+export const generateEmailResponseSchema = z.object({
+  htmlContent: z.string(),
+  subject: z.string(),
+});
+
 export const listEmailCampaignsResponseSchema = z.object({
   campaigns: z.array(emailCampaignWithStatsSchema),
   total: z.number(),

@@ -1,5 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { SESClient, SendEmailCommand } from '@aws-sdk/client-ses';
 
 export interface SendEmailParams {
   to: string;
@@ -13,34 +12,32 @@ export interface SendEmailResult {
   error?: string;
 }
 
+const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
+
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
-  private sesClient: SESClient | null = null;
-  private fromAddress: string;
+  private readonly apiKey: string;
+  private readonly fromAddress: string;
+  private readonly fromName: string;
 
   constructor() {
-    const accessKeyId = process.env.AWS_SES_ACCESS_KEY;
-    const secretAccessKey = process.env.AWS_SES_SECRET_KEY;
-    const region = process.env.AWS_SES_REGION;
-    this.fromAddress = process.env.AWS_SES_FROM_ADDRESS || '';
+    this.apiKey = process.env.BREVO_API_KEY ?? '';
+    this.fromAddress = process.env.BREVO_FROM_ADDRESS ?? '';
+    this.fromName = process.env.BREVO_FROM_NAME ?? '';
 
-    if (accessKeyId && secretAccessKey && region) {
-      this.sesClient = new SESClient({
-        region,
-        credentials: { accessKeyId, secretAccessKey },
-      });
-      this.logger.log('AWS SES client initialized successfully');
+    if (this.apiKey && this.fromAddress) {
+      this.logger.log('Brevo email client initialized successfully');
     } else {
       this.logger.warn(
-        'AWS SES credentials not configured. Emails will be logged but not sent. ' +
-          'Set AWS_SES_ACCESS_KEY, AWS_SES_SECRET_KEY, AWS_SES_REGION, and AWS_SES_FROM_ADDRESS to enable sending.',
+        'Brevo credentials not configured. Emails will be logged but not sent. ' +
+          'Set BREVO_API_KEY and BREVO_FROM_ADDRESS to enable sending.',
       );
     }
   }
 
   async sendEmail(params: SendEmailParams): Promise<SendEmailResult> {
-    if (!this.sesClient || !this.fromAddress) {
+    if (!this.isConfigured()) {
       this.logger.warn(
         `[DRY RUN] Would send email to ${params.to} — Subject: "${params.subject}"`,
       );
@@ -48,38 +45,46 @@ export class EmailService {
     }
 
     try {
-      const command = new SendEmailCommand({
-        Source: this.fromAddress,
-        Destination: {
-          ToAddresses: [params.to],
+      const response = await fetch(BREVO_API_URL, {
+        method: 'POST',
+        headers: {
+          'api-key': this.apiKey,
+          'content-type': 'application/json',
+          accept: 'application/json',
         },
-        Message: {
-          Subject: { Data: params.subject, Charset: 'UTF-8' },
-          Body: {
-            Html: { Data: params.htmlContent, Charset: 'UTF-8' },
+        body: JSON.stringify({
+          sender: {
+            email: this.fromAddress,
+            ...(this.fromName ? { name: this.fromName } : {}),
           },
-        },
+          to: [{ email: params.to }],
+          subject: params.subject,
+          htmlContent: params.htmlContent,
+        }),
       });
 
-      const response = await this.sesClient.send(command);
+      if (!response.ok) {
+        const errorBody = await response.text();
+        const errorMessage = `Brevo API error ${response.status}: ${errorBody}`;
+        this.logger.error(`Failed to send email to ${params.to}: ${errorMessage}`);
+        return { success: false, error: errorMessage };
+      }
 
+      const data = (await response.json()) as { messageId?: string };
       this.logger.log(
-        `Email sent to ${params.to} — MessageId: ${response.MessageId}`,
+        `Email sent to ${params.to} — MessageId: ${data.messageId}`,
       );
 
-      return {
-        success: true,
-        messageId: response.MessageId,
-      };
+      return { success: true, messageId: data.messageId };
     } catch (error) {
       const errorMessage =
-        error instanceof Error ? error.message : 'Unknown SES error';
+        error instanceof Error ? error.message : 'Unknown Brevo error';
       this.logger.error(`Failed to send email to ${params.to}: ${errorMessage}`);
       return { success: false, error: errorMessage };
     }
   }
 
   isConfigured(): boolean {
-    return this.sesClient !== null && this.fromAddress !== '';
+    return this.apiKey !== '' && this.fromAddress !== '';
   }
 }

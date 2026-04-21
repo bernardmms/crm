@@ -27,6 +27,7 @@ model User {
   contacts     Contact[]
   contactLists ContactList[]
   emailCampaigns EmailCampaign[]
+  flows        Flow[]
 
   members         Member[]
   invitationsSent Invitation[] @relation("invitations_sent")
@@ -105,6 +106,7 @@ model Organization {
   contacts     Contact[]
   contactLists ContactList[]
   emailCampaigns EmailCampaign[]
+  flows        Flow[]
 
   @@map("organization")
   @@schema("we-crm")
@@ -161,6 +163,7 @@ model Contact {
 
   listEntries    ContactListEntry[]
   campaignEmails EmailCampaignContact[]
+  flowEnrollments FlowEnrollment[]
 
   @@map("contact")
   @@schema("we-crm")
@@ -259,5 +262,101 @@ model EmailCampaignContact {
 
   @@unique([emailCampaignId, contactId])
   @@map("email_campaign_contact")
+  @@schema("we-crm")
+}
+
+// ── Flow tables ────────────────────────────────────────────────────────────
+
+enum FlowStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ARCHIVED
+
+  @@schema("we-crm")
+}
+
+enum FlowNodeType {
+  LIST_SOURCE
+  SEND_EMAIL
+  WAIT
+
+  @@schema("we-crm")
+}
+
+enum FlowEnrollmentStatus {
+  ACTIVE
+  COMPLETED
+  FAILED
+
+  @@schema("we-crm")
+}
+
+model Flow {
+  id             String     @id
+  name           String
+  status         FlowStatus @default(DRAFT)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  nodes          FlowNode[]
+  edges          FlowEdge[]
+  enrollments    FlowEnrollment[]
+
+  @@map("flow")
+  @@schema("we-crm")
+}
+
+model FlowNode {
+  id     String       @id
+  flowId String
+  flow   Flow         @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  type   FlowNodeType
+  config Json
+  posX   Float
+  posY   Float
+
+  outEdges    FlowEdge[]       @relation("edge_source")
+  inEdges     FlowEdge[]       @relation("edge_target")
+  enrollments FlowEnrollment[]
+
+  @@map("flow_node")
+  @@schema("we-crm")
+}
+
+model FlowEdge {
+  id           String   @id
+  flowId       String
+  flow         Flow     @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  sourceNodeId String
+  sourceNode   FlowNode @relation("edge_source", fields: [sourceNodeId], references: [id], onDelete: Cascade)
+  targetNodeId String
+  targetNode   FlowNode @relation("edge_target", fields: [targetNodeId], references: [id], onDelete: Cascade)
+
+  @@map("flow_edge")
+  @@schema("we-crm")
+}
+
+model FlowEnrollment {
+  id            String               @id
+  flowId        String
+  flow          Flow                 @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  contactId     String
+  contact       Contact              @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  currentNodeId String?
+  currentNode   FlowNode?            @relation(fields: [currentNodeId], references: [id])
+  status        FlowEnrollmentStatus @default(ACTIVE)
+  nextActionAt  DateTime?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  @@unique([flowId, contactId])
+  @@map("flow_enrollment")
   @@schema("we-crm")
 }

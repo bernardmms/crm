@@ -14,6 +14,8 @@ import ProspectingSearchPage from "@/modules/prospecting/pages/ProspectingSearch
 import { NewOrganizationPage } from "@/modules/organizations/pages/NewOrganizationPage";
 import { OrgSettingsPage } from "@/modules/organizations/pages/OrgSettingsPage";
 import EmailCampaignsPage from "@/modules/email-campaigns/pages/EmailCampaignsPage";
+import FlowsPage from "@/modules/flows/pages/FlowsPage";
+import FlowEditorPage from "@/modules/flows/pages/FlowEditorPage";
 import NotFoundPage from "@/modules/common/pages/NotFoundPage";
 import { Navigate } from "react-router";
 import "./index.css";
@@ -28,6 +30,8 @@ createRoot(document.getElementById("root")!).render(
             <Route path="/contacts" element={<ContactsPage />} />
             <Route path="/lists" element={<ContactListsPage />} />
             <Route path="/email" element={<EmailCampaignsPage />} />
+            <Route path="/flows" element={<FlowsPage />} />
+            <Route path="/flows/:id/edit" element={<FlowEditorPage />} />
             <Route path="/prospecting/campaigns" element={<CampaignsPage />} />
             <Route path="/prospecting/search" element={<ProspectingSearchPage />} />
             <Route

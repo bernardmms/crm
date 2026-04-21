@@ -12,7 +12,7 @@ import {
   SidebarHeader,
   SidebarRail,
 } from "@repo/ui/components/ui/sidebar";
-import { Contact, GitBranch, List, Mail, Search, Target, Users } from "lucide-react";
+import { Bot, Contact, GitBranch, List, Mail, Search, Target, Users } from "lucide-react";
 import * as React from "react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -133,6 +133,17 @@ export default function AppSidebar({
           {
             title: "Leads",
             url: "/prospecting/search?tab=leads",
+          },
+        ],
+      },
+      {
+        title: "AI Agent",
+        url: "/prospecting/agent",
+        icon: Bot,
+        items: [
+          {
+            title: "AI Agent",
+            url: "/prospecting/agent",
           },
         ],
       },

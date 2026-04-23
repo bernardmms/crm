@@ -1,7 +1,17 @@
-const DEFAULT_BASE_URL = "http://localhost:8000";
+const DEFAULT_PORT = 8000;
+const DEFAULT_BASE_URL = `http://localhost:${DEFAULT_PORT}`;
+
+function normalizeBaseUrl(url: string) {
+  return url.replace(/\/+$/, "");
+}
 
 function getBaseUrl() {
-  return import.meta.env.VITE_PROSPECTING_API_URL ?? DEFAULT_BASE_URL;
+  const configured = import.meta.env.VITE_PROSPECTING_API_URL;
+  if (typeof configured === "string" && configured.trim().length > 0) {
+    return normalizeBaseUrl(configured);
+  }
+
+  return DEFAULT_BASE_URL;
 }
 
 type RequestOptions = {
@@ -10,10 +20,16 @@ type RequestOptions = {
 };
 
 async function request<T>(path: string, options?: RequestOptions): Promise<T> {
-  const response = await fetch(`${getBaseUrl()}${path}`, {
-    method: options?.method ?? "GET",
-    headers: { "Content-Type": "application/json" },
-    body: options?.body ? JSON.stringify(options.body) : undefined,
+  const hasBody = options?.body !== undefined;
+  const method = options?.method ?? "GET";
+  const headers = hasBody ? { "Content-Type": "application/json" } : undefined;
+  const base = normalizeBaseUrl(getBaseUrl());
+  const targetPath = path.startsWith("/") ? path : `/${path}`;
+
+  const response = await fetch(`${base}${targetPath}`, {
+    method,
+    headers,
+    body: hasBody ? JSON.stringify(options.body) : undefined,
   });
 
   if (!response.ok) {
@@ -109,8 +125,10 @@ export type CompanyItem = {
   name: string;
   website: string | null;
   phone: string | null;
+  full_address: string | null;
   city: string | null;
   state: string | null;
+  zip_code: string | null;
   industry: string | null;
   domain_age_days: number | null;
   technologies: string[] | null;
@@ -280,6 +298,8 @@ export const prospectingApi = {
   },
 
   openRunStream(runId: string) {
-    return new EventSource(`${getBaseUrl()}/runs/${runId}/stream`);
+    const base = `${normalizeBaseUrl(getBaseUrl())}/`;
+    const streamUrl = new URL(`/runs/${encodeURIComponent(runId)}/stream`, base);
+    return new EventSource(streamUrl.toString());
   },
 };

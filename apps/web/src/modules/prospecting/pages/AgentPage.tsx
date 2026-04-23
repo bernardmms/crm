@@ -46,12 +46,13 @@ import {
   ChevronRight,
   Copy,
   ExternalLink,
+  Globe,
   Linkedin,
   Loader2,
   Play,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 
 // ─── Pipeline config ──────────────────────────────────────────────────────────
 
@@ -99,6 +100,31 @@ function emailDotClass(confidence: string) {
     guessed: "bg-amber-400",
     scraped: "bg-violet-400",
   }[confidence] ?? "bg-muted-foreground";
+}
+
+function ensureAbsoluteUrl(value: string | null | undefined) {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
+
+function linkedinProfileFromHandle(value: string | null | undefined) {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    return { url: trimmed, label: trimmed.replace(/^https?:\/\//i, "") };
+  }
+
+  const normalized = trimmed.replace(/^@+/, "").replace(/^\/+/, "");
+  const path = normalized.includes("/") ? normalized : `company/${normalized}`;
+  return {
+    url: `https://www.linkedin.com/${path}`,
+    label: normalized,
+  };
 }
 
 function icpToPayload(icp: Record<string, unknown>): RunCreatePayload {
@@ -411,91 +437,147 @@ function RunCompaniesTable({ companies }: { companies: CompanyItem[] }) {
   }
 
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead className="text-[11px] font-medium uppercase tracking-wide">
-            Company
-          </TableHead>
-          <TableHead className="text-[11px] font-medium uppercase tracking-wide">
-            Location
-          </TableHead>
-          <TableHead className="text-[11px] font-medium uppercase tracking-wide">
-            Industry
-          </TableHead>
-          <TableHead className="text-[11px] font-medium uppercase tracking-wide">
-            Technologies
-          </TableHead>
-          <TableHead className="text-[11px] font-medium uppercase tracking-wide">
-            Source
-          </TableHead>
-          <TableHead className="w-16" />
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {companies.map((co) => (
-          <TableRow key={co.id} className="group hover:bg-muted/20 transition-colors">
-            <TableCell className="px-3 py-2 text-[13px] font-medium">
-              {co.name || "—"}
-            </TableCell>
-            <TableCell className="px-3 py-2 text-[13px]">
-              {[co.city, co.state].filter(Boolean).join(", ") || "—"}
-            </TableCell>
-            <TableCell className="px-3 py-2 text-[13px]">
-              {co.industry || "—"}
-            </TableCell>
-            <TableCell className="px-3 py-2">
-              <div className="flex flex-wrap gap-1">
-                {(co.technologies ?? []).slice(0, 2).map((t) => (
-                  <span
-                    key={t}
-                    className="text-[11px] px-1.5 py-0.5 rounded border bg-muted/30"
-                  >
-                    {t}
-                  </span>
-                ))}
-                {(co.technologies ?? []).length > 2 && (
-                  <span className="text-[11px] text-muted-foreground">
-                    +{(co.technologies ?? []).length - 2}
-                  </span>
-                )}
+    <div className="w-full">
+      <div className="md:hidden px-4 py-3 space-y-2.5">
+        {companies.map((co) => {
+          const website = ensureAbsoluteUrl(co.website);
+          const linkedin = linkedinProfileFromHandle(co.linkedin);
+          const fullAddress =
+            co.full_address ||
+            [co.city, co.state, co.zip_code].filter(Boolean).join(", ");
+
+          return (
+            <div key={co.id} className="rounded-lg border bg-background px-3.5 py-3">
+              <div className="flex items-start justify-between gap-3">
+                <p className="text-[13px] font-medium leading-tight">{co.name || "—"}</p>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {website && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <a
+                          href={website}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-md border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+                          aria-label="Open company website"
+                        >
+                          <Globe className="h-3.5 w-3.5" />
+                        </a>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="text-[11px]">
+                        {website}
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                  {linkedin && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <a
+                          href={linkedin.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-md border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+                          aria-label="Open LinkedIn profile"
+                        >
+                          <Linkedin className="h-3.5 w-3.5" />
+                        </a>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="text-[11px]">
+                        {linkedin.url}
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
               </div>
-            </TableCell>
-            <TableCell className="px-3 py-2">
-              {co.source && (
-                <span className="text-[11px] px-1.5 py-0.5 rounded border text-muted-foreground">
-                  {co.source.replace(/_/g, " ")}
-                </span>
-              )}
-            </TableCell>
-            <TableCell className="px-3 py-2">
-              <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                {co.website && (
-                  <a
-                    href={co.website}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    <ExternalLink className="h-3.5 w-3.5" />
-                  </a>
-                )}
-                {co.linkedin && (
-                  <a
-                    href={co.linkedin}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    <Linkedin className="h-3.5 w-3.5" />
-                  </a>
-                )}
-              </div>
-            </TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+              <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground break-words">
+                {fullAddress || "—"}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="hidden md:block w-full overflow-x-auto">
+        <Table className="min-w-[700px] table-fixed">
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-[34%] px-4 py-3 text-[11px] font-medium uppercase tracking-wide">
+                Company
+              </TableHead>
+              <TableHead className="w-[54%] px-4 py-3 text-[11px] font-medium uppercase tracking-wide">
+                Full address
+              </TableHead>
+              <TableHead className="w-[12%] px-4 py-3 text-[11px] font-medium uppercase tracking-wide text-center">
+                Links
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {companies.map((co) => {
+              const website = ensureAbsoluteUrl(co.website);
+              const linkedin = linkedinProfileFromHandle(co.linkedin);
+              const fullAddress =
+                co.full_address ||
+                [co.city, co.state, co.zip_code].filter(Boolean).join(", ");
+
+              return (
+                <TableRow key={co.id} className="group hover:bg-muted/20 transition-colors">
+                  <TableCell className="px-4 py-3 text-[13px] font-medium">
+                    <span className="block truncate">{co.name || "—"}</span>
+                  </TableCell>
+                  <TableCell className="px-4 py-3 text-[13px] text-muted-foreground">
+                    <span className="block leading-relaxed line-clamp-2">{fullAddress || "—"}</span>
+                  </TableCell>
+                  <TableCell className="px-4 py-3">
+                    <div className="flex justify-center gap-1.5">
+                      {website && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <a
+                              href={website}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-md border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+                              aria-label="Open company website"
+                            >
+                              <Globe className="h-3.5 w-3.5" />
+                            </a>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="text-[11px]">
+                            {website}
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+                      {linkedin && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <a
+                              href={linkedin.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-md border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+                              aria-label="Open LinkedIn profile"
+                            >
+                              <Linkedin className="h-3.5 w-3.5" />
+                            </a>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="text-[11px]">
+                            {linkedin.url}
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+                      {!website && !linkedin && (
+                        <span className="text-[12px] text-muted-foreground">—</span>
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
   );
 }
 
@@ -526,92 +608,188 @@ function RunLeadsTable({
   }
 
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead className="w-6" />
-          <TableHead className="text-[11px] font-medium uppercase tracking-wide">
-            Contact
-          </TableHead>
-          <TableHead className="text-[11px] font-medium uppercase tracking-wide">
-            Company
-          </TableHead>
-          <TableHead className="text-[11px] font-medium uppercase tracking-wide">
-            Email
-          </TableHead>
-          <TableHead className="text-[11px] font-medium uppercase tracking-wide">
-            Score
-          </TableHead>
-          <TableHead className="text-[11px] font-medium uppercase tracking-wide">
-            Status
-          </TableHead>
-          <TableHead className="w-8" />
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {leads.map((lead) => (
-          <>
-            <TableRow
-              key={lead.id}
-              className="group hover:bg-muted/20 transition-colors cursor-pointer"
-              onClick={() => toggle(lead.id)}
-            >
-              <TableCell className="px-3 py-2 w-6">
-                {expanded.has(lead.id) ? (
-                  <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+    <div className="w-full">
+      <div className="md:hidden px-4 py-3 space-y-2.5">
+        {leads.map((lead) => {
+          const linkedin = linkedinProfileFromHandle(lead.linkedin);
+          const isExpanded = expanded.has(lead.id);
+          return (
+            <div key={lead.id} className="rounded-lg border bg-background">
+              <button
+                className="w-full flex items-start gap-2 px-3.5 py-3 text-left"
+                onClick={() => toggle(lead.id)}
+              >
+                {isExpanded ? (
+                  <ChevronDown className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
                 ) : (
-                  <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                  <ChevronRight className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
                 )}
-              </TableCell>
-              <TableCell className="px-3 py-2">
-                <p className="text-[13px] font-medium leading-tight">
-                  {lead.name || "—"}
-                </p>
-                <p className="text-[11px] text-muted-foreground">{lead.title || ""}</p>
-              </TableCell>
-              <TableCell className="px-3 py-2 text-[13px]">
-                {lead.company_name || "—"}
-              </TableCell>
-              <TableCell className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
-                <EmailCell email={lead.email} confidence={lead.email_confidence} />
-              </TableCell>
-              <TableCell className="px-3 py-2">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13px] font-medium leading-tight truncate">
+                    {lead.name || "—"}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground truncate">{lead.title || "—"}</p>
+                </div>
                 <ScorePill score={lead.score} />
-              </TableCell>
-              <TableCell className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
-                <LeadStatusSelect
-                  leadId={lead.id}
-                  status={lead.outreach_status}
-                  onUpdate={onLeadUpdate}
-                />
-              </TableCell>
-              <TableCell className="px-3 py-2">
-                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  {lead.linkedin && (
-                    <a
-                      href={lead.linkedin}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      className="text-muted-foreground hover:text-foreground"
-                    >
-                      <Linkedin className="h-3.5 w-3.5" />
-                    </a>
+              </button>
+
+              <div className="px-3.5 pb-3.5 space-y-2.5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                      Company
+                    </p>
+                    <p className="text-[12px] truncate">{lead.company_name || "—"}</p>
+                  </div>
+                  {linkedin && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <a
+                          href={linkedin.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-md border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors shrink-0"
+                          aria-label="Open LinkedIn profile"
+                        >
+                          <Linkedin className="h-3.5 w-3.5" />
+                        </a>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="text-[11px]">
+                        {linkedin.url}
+                      </TooltipContent>
+                    </Tooltip>
                   )}
                 </div>
-              </TableCell>
+
+                <div>
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">
+                    Email
+                  </p>
+                  <EmailCell email={lead.email} confidence={lead.email_confidence} />
+                </div>
+
+                <div onClick={(e) => e.stopPropagation()}>
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">
+                    Status
+                  </p>
+                  <LeadStatusSelect
+                    leadId={lead.id}
+                    status={lead.outreach_status}
+                    onUpdate={onLeadUpdate}
+                  />
+                </div>
+              </div>
+
+              {isExpanded && <ExpandedLeadPanel lead={lead} />}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="hidden md:block w-full overflow-x-auto px-2">
+        <Table className="min-w-[980px] table-fixed">
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-8 pl-5 py-3.5" />
+              <TableHead className="w-[24%] px-5 py-3.5 text-[11px] font-medium uppercase tracking-wide">
+                Contact
+              </TableHead>
+              <TableHead className="w-[18%] px-5 py-3.5 text-[11px] font-medium uppercase tracking-wide">
+                Company
+              </TableHead>
+              <TableHead className="w-[26%] px-5 py-3.5 text-[11px] font-medium uppercase tracking-wide">
+                Email
+              </TableHead>
+              <TableHead className="w-24 px-5 py-3.5 text-[11px] font-medium uppercase tracking-wide">
+                Score
+              </TableHead>
+              <TableHead className="w-[180px] px-5 py-3.5 text-[11px] font-medium uppercase tracking-wide">
+                Status
+              </TableHead>
+              <TableHead className="w-24 px-6 py-3.5 text-[11px] font-medium uppercase tracking-wide text-center">
+                Link
+              </TableHead>
             </TableRow>
-            {expanded.has(lead.id) && (
-              <TableRow key={`${lead.id}-expanded`}>
-                <TableCell colSpan={7} className="p-0">
-                  <ExpandedLeadPanel lead={lead} />
-                </TableCell>
-              </TableRow>
-            )}
-          </>
-        ))}
-      </TableBody>
-    </Table>
+          </TableHeader>
+          <TableBody>
+            {leads.map((lead) => {
+              const linkedin = linkedinProfileFromHandle(lead.linkedin);
+              const isExpanded = expanded.has(lead.id);
+
+              return (
+                <Fragment key={lead.id}>
+                  <TableRow
+                    className="group hover:bg-muted/20 transition-colors cursor-pointer"
+                    onClick={() => toggle(lead.id)}
+                  >
+                    <TableCell className="px-5 py-3.5 w-8">
+                      {isExpanded ? (
+                        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                      ) : (
+                        <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                      )}
+                    </TableCell>
+                    <TableCell className="px-5 py-3.5">
+                      <p className="text-[13px] font-medium leading-tight">{lead.name || "—"}</p>
+                      <p className="text-[11px] text-muted-foreground">{lead.title || ""}</p>
+                    </TableCell>
+                    <TableCell className="px-5 py-3.5 text-[13px]">
+                      <span className="block max-w-full truncate">
+                        {lead.company_name || "—"}
+                      </span>
+                    </TableCell>
+                    <TableCell className="px-5 py-3.5" onClick={(e) => e.stopPropagation()}>
+                      <EmailCell email={lead.email} confidence={lead.email_confidence} />
+                    </TableCell>
+                    <TableCell className="px-5 py-3.5">
+                      <ScorePill score={lead.score} />
+                    </TableCell>
+                    <TableCell className="px-5 py-3.5" onClick={(e) => e.stopPropagation()}>
+                      <LeadStatusSelect
+                        leadId={lead.id}
+                        status={lead.outreach_status}
+                        onUpdate={onLeadUpdate}
+                      />
+                    </TableCell>
+                    <TableCell className="px-6 py-3.5">
+                      <div className="flex justify-center pr-1">
+                        {linkedin && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <a
+                                href={linkedin.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-md border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+                                aria-label="Open LinkedIn profile"
+                              >
+                                <Linkedin className="h-3.5 w-3.5" />
+                              </a>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="text-[11px]">
+                              {linkedin.url}
+                            </TooltipContent>
+                          </Tooltip>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                  {isExpanded && (
+                    <TableRow>
+                      <TableCell colSpan={7} className="p-0">
+                        <ExpandedLeadPanel lead={lead} />
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </Fragment>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
   );
 }
 

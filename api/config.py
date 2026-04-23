@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     supabase_url: str
     supabase_service_role_key: str
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
-    port: int = 8000
+    port: int = 8001
 
     @property
     def allowed_origins(self) -> list[str]:

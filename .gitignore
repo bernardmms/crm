@@ -9,3 +9,4 @@ coverage
 uploads/
 .claude
 interface-design
+*.env.*

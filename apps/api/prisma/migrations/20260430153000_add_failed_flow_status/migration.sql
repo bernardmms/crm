@@ -1,2 +1,2 @@
 -- AlterEnum
-ALTER TYPE "FlowStatus" ADD VALUE 'FAILED';
+ALTER TYPE "we-crm"."FlowStatus" ADD VALUE 'FAILED';

@@ -16,7 +16,10 @@
     "check-types": "tsc --noEmit",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "db:generate": "prisma generate",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "db:backfill:agent-lead-contacts": "node ./scripts/backfill-agent-lead-contacts.mjs",
+    "db:backfill:enrichment-jobs": "node ./scripts/backfill-enrichment-job-snapshots.mjs",
+    "test": "pnpm exec vitest run"
   },
   "dependencies": {
     "@better-auth/prisma-adapter": "^1.5.3",
@@ -37,6 +40,7 @@
     "bcrypt": "^6.0.0",
     "better-auth": "^1.5.3",
     "dotenv": "^17.2.4",
+    "pg": "^8.13.1",
     "prisma": "^7.3.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
@@ -46,8 +50,10 @@
     "@nestjs/cli": "^11.0.0",
     "@nestjs/schematics": "^11.0.0",
     "@types/bcrypt": "^6.0.0",
+    "@types/pg": "^8.11.10",
     "@types/express": "^5.0.0",
     "@types/node": "^22.10.7",
+    "vitest": "^4.1.5",
     "typescript": "^5.7.3"
   }
 }

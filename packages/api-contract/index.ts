@@ -7,6 +7,7 @@ import { campaignDataContract } from "./src/campaign-data/campaign-data-contract
 import { emailCampaignContract } from "./src/email-campaign/email-campaign-contract";
 import { flowContract } from "./src/flow/flow-contract";
 import { unsubscribeContract } from "./src/unsubscribe/unsubscribe-contract";
+import { leadAgentContract } from "./src/lead-agent/lead-agent-contract";
 
 export * from "./src/auth/auth-schema";
 export * from "./src/admin/admin-schema";
@@ -16,6 +17,7 @@ export * from "./src/campaign-data/campaign-data-schema";
 export * from "./src/email-campaign/email-campaign-schema";
 export * from "./src/flow/flow-schema";
 export * from "./src/unsubscribe/unsubscribe-schema";
+export * from "./src/lead-agent/lead-agent-schema";
 export { userSchema } from "./src/user-schema";
 export * from "./src/validation-error-schema";
 
@@ -29,4 +31,5 @@ export const contract = c.router({
   emailCampaignContract,
   flowContract,
   unsubscribeContract,
+  leadAgentContract,
 });

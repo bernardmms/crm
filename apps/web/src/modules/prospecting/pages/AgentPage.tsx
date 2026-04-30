@@ -1,12 +1,6 @@
-import { prospectingApi } from "@/lib/prospecting-api";
-import type {
-  CompanyItem,
-  LeadItem,
-  OutreachStatus,
-  ProspectingRunStatus,
-  RunCreatePayload,
-  RunSummary,
-} from "@/lib/prospecting-api";
+import { apiClient } from "@/lib/api-client";
+import { leadAgentClient } from "@/lib/lead-agent-client";
+import type { RunCreatePayload } from "@/lib/prospecting-api";
 import { toast } from "@/lib/toast";
 import { Button } from "@repo/ui/components/ui/button";
 import { Checkbox } from "@repo/ui/components/ui/checkbox";
@@ -45,47 +39,135 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
-  ExternalLink,
   Globe,
   Linkedin,
   Loader2,
   Play,
-  X,
+  Search,
+  Trash2,
+  UserPlus,
 } from "lucide-react";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import type { z } from "zod";
+import type {
+  jobSummarySchema,
+  agentLeadSchema,
+  leadCompanySchema,
+} from "@repo/api-contract";
 
-// ─── Pipeline config ──────────────────────────────────────────────────────────
+// ── Types from contract ────────────────────────────────────────────
+
+type JobSummary = z.infer<typeof jobSummarySchema>;
+type AgentLead = z.infer<typeof agentLeadSchema>;
+type LeadCompany = z.infer<typeof leadCompanySchema>;
+type JobStatus = string;
+
+// ── Pipeline config ────────────────────────────────────────────────
 
 const PIPELINE_NODES = [
-  { id: "input_validator", label: "Validate input" },
-  { id: "lead_scout_web", label: "Scout leads" },
-  { id: "deduplicator", label: "Deduplicate" },
-  { id: "enricher_scraper", label: "Scrape websites" },
-  { id: "enricher_social_phone", label: "Social & phone" },
-  { id: "enricher_email", label: "Find emails" },
-  { id: "enricher_whois", label: "WHOIS lookup" },
-  { id: "merge_enrichment", label: "Merge data" },
-  { id: "enricher_contact", label: "Enrich contacts" },
-  { id: "qualifier", label: "BANT qualify" },
-  { id: "email_generator", label: "Generate emails" },
-  { id: "outreach_sender", label: "Send outreach" },
-  { id: "crm_writer", label: "Write to CRM" },
-  { id: "hubspot_sync", label: "Sync HubSpot" },
-  { id: "reporter", label: "Generate report" },
+  { id: "queued", label: "Queued" },
+  { id: "parsing_icp", label: "Parse ICP" },
+  { id: "searching", label: "Search companies" },
+  { id: "scoring", label: "Score & filter" },
+  { id: "finding_leads", label: "Find leads" },
+  { id: "enriching", label: "Enrich & qualify" },
 ] as const;
 
 type NodeId = (typeof PIPELINE_NODES)[number]["id"];
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+const FINAL_STATUSES = new Set(["completed", "partial", "failed"]);
+const STAGE_ORDER = PIPELINE_NODES.map((n) => n.id);
+const STAGE_ALIASES: Record<string, NodeId> = {
+  queued: "queued",
+  pending: "queued",
+  parsing_icp: "parsing_icp",
+  search_companies: "searching",
+  searching: "searching",
+  score_leads: "scoring",
+  scoring: "scoring",
+  filter_leads: "scoring",
+  find_leads: "finding_leads",
+  finding_leads: "finding_leads",
+  enrich_companies: "enriching",
+  enriching: "enriching",
+  contact_qualified: "enriching",
+};
 
-function statusDotClass(status: ProspectingRunStatus) {
-  return {
-    pending: "bg-amber-400",
-    running: "bg-blue-500 animate-pulse",
-    completed: "bg-emerald-500",
-    failed: "bg-red-500",
-    cancelled: "bg-muted-foreground",
-  }[status];
+const OUTREACH_STATUSES = [
+  "pending",
+  "sent",
+  "failed",
+  "cold",
+  "replied",
+  "disqualified",
+  "meeting_scheduled",
+  "lost",
+] as const;
+
+// ── Helpers ────────────────────────────────────────────────────────
+
+function statusDotClass(status: JobStatus) {
+  return (
+    {
+      queued: "bg-amber-400",
+      pending: "bg-amber-400",
+      searching: "bg-blue-500 animate-pulse",
+      parsing_icp: "bg-blue-500 animate-pulse",
+      scoring: "bg-blue-500 animate-pulse",
+      finding_leads: "bg-blue-500 animate-pulse",
+      enriching: "bg-blue-500 animate-pulse",
+      running: "bg-blue-500 animate-pulse",
+      completed: "bg-emerald-500",
+      failed: "bg-red-500",
+      cancelled: "bg-muted-foreground",
+    }[status] ?? "bg-muted-foreground"
+  );
+}
+
+function normalizeStage(stage: string | null | undefined): NodeId | null {
+  if (!stage) return null;
+  return STAGE_ALIASES[stage] ?? null;
+}
+
+function buildNodeData(
+  stageCounts: Record<string, number> | null | undefined,
+  totalLeads?: number | null,
+  progress?: number | null,
+) {
+  const next: Record<string, Record<string, unknown>> = {};
+
+  if (stageCounts) {
+    for (const [stage, count] of Object.entries(stageCounts)) {
+      const normalized = normalizeStage(stage);
+      if (!normalized) continue;
+      next[normalized] = {
+        run_metadata: {
+          ...(next[normalized]?.run_metadata as Record<string, unknown> | undefined),
+          found: count,
+        },
+      };
+    }
+  }
+
+  if (totalLeads != null) {
+    next.finding_leads = {
+      run_metadata: {
+        ...(next.finding_leads?.run_metadata as Record<string, unknown> | undefined),
+        leads: totalLeads,
+      },
+    };
+  }
+
+  if (progress != null) {
+    next.queued = {
+      run_metadata: {
+        ...(next.queued?.run_metadata as Record<string, unknown> | undefined),
+        progress: `${Math.round(progress)}%`,
+      },
+    };
+  }
+
+  return next;
 }
 
 function scorePillClass(score: number) {
@@ -94,12 +176,11 @@ function scorePillClass(score: number) {
   return "bg-red-50 text-red-700 dark:bg-red-950/60";
 }
 
-function emailDotClass(confidence: string) {
-  return {
-    verified: "bg-emerald-500",
-    guessed: "bg-amber-400",
-    scraped: "bg-violet-400",
-  }[confidence] ?? "bg-muted-foreground";
+function emailDotClass(confidence: number | null) {
+  if (confidence == null) return "bg-muted-foreground";
+  if (confidence >= 0.9) return "bg-emerald-500";
+  if (confidence >= 0.6) return "bg-amber-400";
+  return "bg-violet-400";
 }
 
 function ensureAbsoluteUrl(value: string | null | undefined) {
@@ -114,17 +195,12 @@ function linkedinProfileFromHandle(value: string | null | undefined) {
   if (!value) return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
-
   if (/^https?:\/\//i.test(trimmed)) {
     return { url: trimmed, label: trimmed.replace(/^https?:\/\//i, "") };
   }
-
   const normalized = trimmed.replace(/^@+/, "").replace(/^\/+/, "");
   const path = normalized.includes("/") ? normalized : `company/${normalized}`;
-  return {
-    url: `https://www.linkedin.com/${path}`,
-    label: normalized,
-  };
+  return { url: `https://www.linkedin.com/${path}`, label: normalized };
 }
 
 function icpToPayload(icp: Record<string, unknown>): RunCreatePayload {
@@ -138,12 +214,12 @@ function icpToPayload(icp: Record<string, unknown>): RunCreatePayload {
     company_size: icp.company_size != null ? String(icp.company_size) : undefined,
     max_leads: typeof icp.max_leads === "number" ? icp.max_leads : undefined,
     min_score: typeof icp.min_score === "number" ? icp.min_score : undefined,
-    dry_run: typeof icp.dry_run === "boolean" ? icp.dry_run : true,
+    max_companies: typeof icp.max_companies === "number" ? icp.max_companies : undefined,
   };
 }
 
-function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString(undefined, {
+function fmtDate(d: Date | string) {
+  return new Date(d).toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -151,19 +227,20 @@ function fmtDate(iso: string) {
   });
 }
 
-function icpLabel(run: RunSummary) {
-  const icp = run.icp as Record<string, string>;
-  return `${icp.industry ?? "?"} · ${icp.geo ?? "?"}`;
+function icpLabel(job: JobSummary) {
+  const icp = job.icp as Record<string, string>;
+  const composed = [icp.industry, icp.geo].filter(Boolean).join(" · ");
+  return composed || job.job_name || "?";
 }
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
+// ── Sub-components ────────────────────────────────────────────────
 
 function RunListItem({
-  run,
+  job,
   active,
   onClick,
 }: {
-  run: RunSummary;
+  job: JobSummary;
   active: boolean;
   onClick: () => void;
 }) {
@@ -176,24 +253,16 @@ function RunListItem({
       )}
     >
       <div className="flex items-center gap-1.5 mb-0.5">
-        <span
-          className={cn("h-1.5 w-1.5 rounded-full shrink-0", statusDotClass(run.status))}
-        />
-        <span className="text-[12px] text-muted-foreground capitalize">
-          {run.status}
-        </span>
-        {run.metrics?.leads_qualified != null && (
+        <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", statusDotClass(job.status))} />
+        <span className="text-[12px] text-muted-foreground capitalize">{job.status}</span>
+        {job.metrics?.leads_qualified != null && (
           <span className="ml-auto text-[11px] text-muted-foreground tabular-nums">
-            {run.metrics.leads_qualified} leads
+            {job.metrics.leads_qualified} leads
           </span>
         )}
       </div>
-      <p className="text-[13px] font-medium truncate leading-tight">
-        {icpLabel(run)}
-      </p>
-      <p className="text-[11px] text-muted-foreground mt-0.5">
-        {fmtDate(run.started_at)}
-      </p>
+      <p className="text-[13px] font-medium truncate leading-tight">{icpLabel(job)}</p>
+      <p className="text-[11px] text-muted-foreground mt-0.5">{fmtDate(job.started_at)}</p>
     </button>
   );
 }
@@ -213,10 +282,7 @@ function PipelineTracker({
         const done = completedNodes.has(node.id);
         const running = activeNode === node.id;
         const pending = !done && !running;
-        const data = nodeData[node.id] as
-          | { run_metadata?: Record<string, unknown> }
-          | undefined;
-
+        const data = nodeData[node.id] as { run_metadata?: Record<string, unknown> } | undefined;
         return (
           <div key={node.id} className="flex items-start gap-3 py-1.5">
             <div
@@ -258,7 +324,7 @@ function PipelineTracker({
   );
 }
 
-function ScorePill({ score }: { score: number | null }) {
+function ScorePill({ score }: { score: number | null | undefined }) {
   if (score == null) return <span className="text-muted-foreground">—</span>;
   return (
     <span
@@ -276,28 +342,21 @@ function EmailCell({
   email,
   confidence,
 }: {
-  email: string | null;
-  confidence: string | null;
+  email: string | null | undefined;
+  confidence: number | null | undefined;
 }) {
   if (!email) return <span className="text-muted-foreground">—</span>;
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <span className="flex items-center gap-1.5 cursor-default">
-          {confidence && (
-            <span
-              className={cn(
-                "h-2 w-2 rounded-full shrink-0",
-                emailDotClass(confidence),
-              )}
-            />
-          )}
+          <span className={cn("h-2 w-2 rounded-full shrink-0", emailDotClass(confidence ?? null))} />
           <span className="text-[13px] truncate max-w-[160px]">{email}</span>
         </span>
       </TooltipTrigger>
-      {confidence && (
+      {confidence != null && (
         <TooltipContent side="top" className="text-[11px]">
-          {confidence}
+          confidence: {Math.round(confidence * 100)}%
         </TooltipContent>
       )}
     </Tooltip>
@@ -305,46 +364,43 @@ function EmailCell({
 }
 
 function LeadStatusSelect({
-  leadId,
-  status,
+  lead,
+  jobId,
   onUpdate,
 }: {
-  leadId: string;
-  status: OutreachStatus;
-  onUpdate: (id: string, status: OutreachStatus) => void;
+  lead: AgentLead;
+  jobId: string;
+  onUpdate: (id: number, status: string) => void;
 }) {
   const [updating, setUpdating] = useState(false);
 
   async function handleChange(value: string) {
     setUpdating(true);
     try {
-      await prospectingApi.updateLeadStatus(leadId, value as OutreachStatus);
-      onUpdate(leadId, value as OutreachStatus);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update status");
+      const res = await apiClient.leadAgentContract.updateLeadStatus({
+        params: { jobId, leadId: lead.id },
+        body: { status: value },
+      });
+      if (res.status === 200) onUpdate(lead.id, value);
+      else toast.error("Failed to update status");
+    } catch {
+      toast.error("Failed to update status");
     } finally {
       setUpdating(false);
     }
   }
 
   return (
-    <Select value={status} onValueChange={(v) => void handleChange(v)} disabled={updating}>
+    <Select
+      value={lead.outreach_status}
+      onValueChange={(v) => void handleChange(v)}
+      disabled={updating}
+    >
       <SelectTrigger className="h-6 text-[11px] w-[130px] px-2">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        {(
-          [
-            "pending",
-            "sent",
-            "failed",
-            "cold",
-            "replied",
-            "disqualified",
-            "meeting_scheduled",
-            "lost",
-          ] as OutreachStatus[]
-        ).map((s) => (
+        {OUTREACH_STATUSES.map((s) => (
           <SelectItem key={s} value={s} className="text-[12px]">
             {s.replace(/_/g, " ")}
           </SelectItem>
@@ -354,7 +410,7 @@ function LeadStatusSelect({
   );
 }
 
-function ExpandedLeadPanel({ lead }: { lead: LeadItem }) {
+function ExpandedLeadPanel({ lead }: { lead: AgentLead }) {
   return (
     <div className="px-4 py-3 bg-muted/10 border-t text-[13px] space-y-3">
       {lead.score_reason && (
@@ -365,12 +421,12 @@ function ExpandedLeadPanel({ lead }: { lead: LeadItem }) {
           <p>{lead.score_reason}</p>
         </div>
       )}
-      {lead.suggested_angle && (
+      {lead.outreach_angle && (
         <div>
           <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mb-1">
             Suggested angle
           </p>
-          <p>{lead.suggested_angle}</p>
+          <p>{lead.outreach_angle}</p>
         </div>
       )}
       {lead.bant && (
@@ -410,6 +466,14 @@ function ExpandedLeadPanel({ lead }: { lead: LeadItem }) {
           </ul>
         </div>
       )}
+      {lead.phone && (
+        <div>
+          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mb-1">
+            Phone
+          </p>
+          <p className="text-[13px]">{lead.phone}</p>
+        </div>
+      )}
       {lead.email_subject && (
         <div>
           <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mb-1">
@@ -423,11 +487,73 @@ function ExpandedLeadPanel({ lead }: { lead: LeadItem }) {
           )}
         </div>
       )}
+      {(lead.follow_up_1 || lead.follow_up_2) && (
+        <div>
+          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mb-1">
+            Follow-ups
+          </p>
+          {lead.follow_up_1 && (
+            <div className="mb-1.5">
+              <span className="text-[10px] font-medium text-muted-foreground uppercase mr-1.5">
+                #1
+              </span>
+              <span className="text-[12px] text-muted-foreground whitespace-pre-wrap">
+                {lead.follow_up_1.replace(/<[^>]+>/g, "")}
+              </span>
+            </div>
+          )}
+          {lead.follow_up_2 && (
+            <div>
+              <span className="text-[10px] font-medium text-muted-foreground uppercase mr-1.5">
+                #2
+              </span>
+              <span className="text-[12px] text-muted-foreground whitespace-pre-wrap">
+                {lead.follow_up_2.replace(/<[^>]+>/g, "")}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-function RunCompaniesTable({ companies }: { companies: CompanyItem[] }) {
+// ── Companies table ────────────────────────────────────────────────
+
+function RunCompaniesTable({
+  companies,
+  jobId,
+  onCompanyDelete,
+}: {
+  companies: LeadCompany[];
+  jobId: string;
+  onCompanyDelete: (id: number) => void;
+}) {
+  const [deleting, setDeleting] = useState<Set<number>>(new Set());
+
+  async function handleDeleteCompany(companyId: number) {
+    setDeleting((prev) => new Set([...prev, companyId]));
+    try {
+      const res = await apiClient.leadAgentContract.deleteCompany({
+        params: { jobId, companyId },
+        body: undefined,
+      });
+      if (res.status === 200) {
+        onCompanyDelete(companyId);
+      } else {
+        toast.error("Failed to delete company");
+      }
+    } catch {
+      toast.error("Failed to delete company");
+    } finally {
+      setDeleting((prev) => {
+        const next = new Set(prev);
+        next.delete(companyId);
+        return next;
+      });
+    }
+  }
+
   if (companies.length === 0) {
     return (
       <div className="py-12 text-center text-[13px] text-muted-foreground">
@@ -440,93 +566,137 @@ function RunCompaniesTable({ companies }: { companies: CompanyItem[] }) {
     <div className="w-full">
       <div className="md:hidden px-4 py-3 space-y-2.5">
         {companies.map((co) => {
-          const website = ensureAbsoluteUrl(co.website);
-          const linkedin = linkedinProfileFromHandle(co.linkedin);
+          const website = ensureAbsoluteUrl(co.website ?? co.domain);
+          const linkedin = linkedinProfileFromHandle(co.linkedin_url);
           const fullAddress =
-            co.full_address ||
-            [co.city, co.state, co.zip_code].filter(Boolean).join(", ");
-
+            [co.address, co.city, co.state, co.zip_code].filter(Boolean).join(", ");
           return (
             <div key={co.id} className="rounded-lg border bg-background px-3.5 py-3">
               <div className="flex items-start justify-between gap-3">
-                <p className="text-[13px] font-medium leading-tight">{co.name || "—"}</p>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {website && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <a
-                          href={website}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-md border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
-                          aria-label="Open company website"
-                        >
-                          <Globe className="h-3.5 w-3.5" />
-                        </a>
-                      </TooltipTrigger>
-                      <TooltipContent side="top" className="text-[11px]">
-                        {website}
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
-                  {linkedin && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <a
-                          href={linkedin.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-md border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
-                          aria-label="Open LinkedIn profile"
-                        >
-                          <Linkedin className="h-3.5 w-3.5" />
-                        </a>
-                      </TooltipTrigger>
-                      <TooltipContent side="top" className="text-[11px]">
-                        {linkedin.url}
-                      </TooltipContent>
-                    </Tooltip>
+                <div className="min-w-0">
+                  <p className="text-[13px] font-medium leading-tight">{co.name || "—"}</p>
+                  {co.sector && (
+                    <p className="text-[11px] text-muted-foreground mt-0.5">{co.sector}</p>
                   )}
                 </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {website && (
+                    <a
+                      href={website}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-md border text-muted-foreground hover:text-foreground hover:bg-muted/40"
+                    >
+                      <Globe className="h-3.5 w-3.5" />
+                    </a>
+                  )}
+                  {linkedin && (
+                    <a
+                      href={linkedin.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-md border text-muted-foreground hover:text-foreground hover:bg-muted/40"
+                    >
+                      <Linkedin className="h-3.5 w-3.5" />
+                    </a>
+                  )}
+                  <button
+                    onClick={() => void handleDeleteCompany(co.id)}
+                    disabled={deleting.has(co.id)}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-md border text-muted-foreground hover:text-red-600 hover:border-red-200 disabled:opacity-50"
+                  >
+                    {deleting.has(co.id) ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                </div>
               </div>
-              <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground break-words">
-                {fullAddress || "—"}
-              </p>
+              <p className="mt-2 text-[12px] text-muted-foreground">{fullAddress || "—"}</p>
+              {co.technologies.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {co.technologies.slice(0, 5).map((t) => (
+                    <span
+                      key={t}
+                      className="text-[10px] px-1.5 py-0.5 rounded bg-muted/60 text-muted-foreground"
+                    >
+                      {t}
+                    </span>
+                  ))}
+                  {co.technologies.length > 5 && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted/60 text-muted-foreground">
+                      +{co.technologies.length - 5}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
       </div>
 
       <div className="hidden md:block w-full overflow-x-auto">
-        <Table className="min-w-[700px] table-fixed">
+        <Table className="min-w-[860px] table-fixed">
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[34%] px-4 py-3 text-[11px] font-medium uppercase tracking-wide">
+              <TableHead className="w-[22%] px-4 py-3 text-[11px] font-medium uppercase tracking-wide">
                 Company
               </TableHead>
-              <TableHead className="w-[54%] px-4 py-3 text-[11px] font-medium uppercase tracking-wide">
-                Full address
+              <TableHead className="w-[15%] px-4 py-3 text-[11px] font-medium uppercase tracking-wide">
+                Sector
+              </TableHead>
+              <TableHead className="w-[28%] px-4 py-3 text-[11px] font-medium uppercase tracking-wide">
+                Address
+              </TableHead>
+              <TableHead className="w-[23%] px-4 py-3 text-[11px] font-medium uppercase tracking-wide">
+                Technologies
               </TableHead>
               <TableHead className="w-[12%] px-4 py-3 text-[11px] font-medium uppercase tracking-wide text-center">
                 Links
+              </TableHead>
+              <TableHead className="w-[10%] px-4 py-3 text-[11px] font-medium uppercase tracking-wide text-center">
+                Actions
               </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {companies.map((co) => {
-              const website = ensureAbsoluteUrl(co.website);
-              const linkedin = linkedinProfileFromHandle(co.linkedin);
+              const website = ensureAbsoluteUrl(co.website ?? co.domain);
+              const linkedin = linkedinProfileFromHandle(co.linkedin_url);
               const fullAddress =
-                co.full_address ||
-                [co.city, co.state, co.zip_code].filter(Boolean).join(", ");
-
+                [co.address, co.city, co.state, co.zip_code].filter(Boolean).join(", ");
               return (
-                <TableRow key={co.id} className="group hover:bg-muted/20 transition-colors">
+                <TableRow key={co.id} className="hover:bg-muted/20">
                   <TableCell className="px-4 py-3 text-[13px] font-medium">
                     <span className="block truncate">{co.name || "—"}</span>
                   </TableCell>
+                  <TableCell className="px-4 py-3 text-[12px] text-muted-foreground">
+                    <span className="block truncate">{co.sector || "—"}</span>
+                  </TableCell>
                   <TableCell className="px-4 py-3 text-[13px] text-muted-foreground">
-                    <span className="block leading-relaxed line-clamp-2">{fullAddress || "—"}</span>
+                    <span className="block line-clamp-2">{fullAddress || "—"}</span>
+                  </TableCell>
+                  <TableCell className="px-4 py-3">
+                    {co.technologies.length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {co.technologies.slice(0, 4).map((t) => (
+                          <span
+                            key={t}
+                            className="text-[10px] px-1.5 py-0.5 rounded bg-muted/60 text-muted-foreground"
+                          >
+                            {t}
+                          </span>
+                        ))}
+                        {co.technologies.length > 4 && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted/60 text-muted-foreground">
+                            +{co.technologies.length - 4}
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-[12px] text-muted-foreground">—</span>
+                    )}
                   </TableCell>
                   <TableCell className="px-4 py-3">
                     <div className="flex justify-center gap-1.5">
@@ -537,15 +707,12 @@ function RunCompaniesTable({ companies }: { companies: CompanyItem[] }) {
                               href={website}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="inline-flex h-8 w-8 items-center justify-center rounded-md border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
-                              aria-label="Open company website"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-md border text-muted-foreground hover:text-foreground hover:bg-muted/40"
                             >
                               <Globe className="h-3.5 w-3.5" />
                             </a>
                           </TooltipTrigger>
-                          <TooltipContent side="top" className="text-[11px]">
-                            {website}
-                          </TooltipContent>
+                          <TooltipContent className="text-[11px]">{website}</TooltipContent>
                         </Tooltip>
                       )}
                       {linkedin && (
@@ -555,20 +722,32 @@ function RunCompaniesTable({ companies }: { companies: CompanyItem[] }) {
                               href={linkedin.url}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="inline-flex h-8 w-8 items-center justify-center rounded-md border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
-                              aria-label="Open LinkedIn profile"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-md border text-muted-foreground hover:text-foreground hover:bg-muted/40"
                             >
                               <Linkedin className="h-3.5 w-3.5" />
                             </a>
                           </TooltipTrigger>
-                          <TooltipContent side="top" className="text-[11px]">
-                            {linkedin.url}
-                          </TooltipContent>
+                          <TooltipContent className="text-[11px]">{linkedin.label}</TooltipContent>
                         </Tooltip>
                       )}
                       {!website && !linkedin && (
                         <span className="text-[12px] text-muted-foreground">—</span>
                       )}
+                    </div>
+                  </TableCell>
+                  <TableCell className="px-4 py-3">
+                    <div className="flex justify-center">
+                      <button
+                        onClick={() => void handleDeleteCompany(co.id)}
+                        disabled={deleting.has(co.id)}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border text-muted-foreground hover:text-red-600 hover:border-red-200 disabled:opacity-50"
+                      >
+                        {deleting.has(co.id) ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5" />
+                        )}
+                      </button>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -581,59 +760,182 @@ function RunCompaniesTable({ companies }: { companies: CompanyItem[] }) {
   );
 }
 
+// ── Leads table ────────────────────────────────────────────────────
+
 function RunLeadsTable({
   leads,
+  jobId,
   onLeadUpdate,
+  onLeadDelete,
+  onAddToList,
 }: {
-  leads: LeadItem[];
-  onLeadUpdate: (id: string, status: OutreachStatus) => void;
+  leads: AgentLead[];
+  jobId: string;
+  onLeadUpdate: (id: number, status: string) => void;
+  onLeadDelete: (id: number) => void;
+  onAddToList: (ids: number[]) => void;
 }) {
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [deleting, setDeleting] = useState<Set<number>>(new Set());
+  const [search, setSearch] = useState("");
 
-  function toggle(id: string) {
+  const filteredLeads = search.trim()
+    ? leads.filter((l) => {
+        const q = search.toLowerCase();
+        return (
+          l.full_name?.toLowerCase().includes(q) ||
+          l.email?.toLowerCase().includes(q) ||
+          l.role?.toLowerCase().includes(q) ||
+          l.company_name?.toLowerCase().includes(q)
+        );
+      })
+    : leads;
+
+  function toggle(id: number) {
     setExpanded((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
   }
 
-  if (leads.length === 0) {
-    return (
-      <div className="py-12 text-center text-[13px] text-muted-foreground">
-        No leads found for this run.
-      </div>
+  function toggleSelect(id: number) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    setSelected(
+      selected.size === filteredLeads.length
+        ? new Set()
+        : new Set(filteredLeads.map((l) => l.id)),
     );
   }
 
-  return (
-    <div className="w-full">
-      <div className="md:hidden px-4 py-3 space-y-2.5">
-        {leads.map((lead) => {
-          const linkedin = linkedinProfileFromHandle(lead.linkedin);
-          const isExpanded = expanded.has(lead.id);
-          return (
-            <div key={lead.id} className="rounded-lg border bg-background">
-              <button
-                className="w-full flex items-start gap-2 px-3.5 py-3 text-left"
-                onClick={() => toggle(lead.id)}
-              >
-                {isExpanded ? (
-                  <ChevronDown className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
-                ) : (
-                  <ChevronRight className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
-                )}
-                <div className="min-w-0 flex-1">
-                  <p className="text-[13px] font-medium leading-tight truncate">
-                    {lead.name || "—"}
-                  </p>
-                  <p className="text-[11px] text-muted-foreground truncate">{lead.title || "—"}</p>
-                </div>
-                <ScorePill score={lead.score} />
-              </button>
+  async function handleDeleteLead(id: number) {
+    setDeleting((prev) => new Set([...prev, id]));
+    try {
+      const res = await apiClient.leadAgentContract.deleteLead({
+        params: { jobId, leadId: id },
+      });
+      if (res.status === 200) {
+        onLeadDelete(id);
+        setSelected((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      } else {
+        toast.error("Failed to delete lead");
+      }
+    } catch {
+      toast.error("Failed to delete lead");
+    } finally {
+      setDeleting((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  }
 
-              <div className="px-3.5 pb-3.5 space-y-2.5">
+  const allSelected = filteredLeads.length > 0 && selected.size === filteredLeads.length;
+  const someSelected = selected.size > 0;
+
+  return (
+    <div className="w-full flex flex-col">
+      <div className="px-4 py-2 border-b shrink-0">
+        <div className="relative max-w-xs">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+          <Input
+            className="h-7 pl-8 text-[13px]"
+            placeholder="Search leads…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+      </div>
+      {someSelected && (
+        <div className="flex items-center gap-2 px-5 py-2 border-b bg-muted/10 shrink-0">
+          <span className="text-[12px] text-muted-foreground">{selected.size} selected</span>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 px-2.5 text-[12px] ml-1"
+            onClick={() => onAddToList([...selected])}
+          >
+            <UserPlus className="h-3 w-3 mr-1" />
+            Add to list
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 px-2.5 text-[12px] text-red-600 hover:text-red-700 border-red-200 hover:border-red-300"
+            onClick={() => void Promise.all([...selected].map((id) => handleDeleteLead(id)))}
+          >
+            <Trash2 className="h-3 w-3 mr-1" />
+            Delete selected
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-2 text-[12px] ml-auto"
+            onClick={() => setSelected(new Set())}
+          >
+            Clear
+          </Button>
+        </div>
+      )}
+
+      {filteredLeads.length === 0 && (
+        <div className="py-12 text-center text-[13px] text-muted-foreground">
+          {search ? "No leads match your search." : "No leads found for this run."}
+        </div>
+      )}
+
+      {/* Mobile */}
+      <div className="md:hidden px-4 py-3 space-y-2.5">
+        {filteredLeads.map((lead) => {
+          const linkedin = linkedinProfileFromHandle(lead.linkedin_url);
+          const isExpanded = expanded.has(lead.id);
+          const isSelected = selected.has(lead.id);
+          return (
+            <div
+              key={lead.id}
+              className={cn(
+                "rounded-lg border bg-background",
+                isSelected && "border-primary/50 bg-primary/5",
+              )}
+            >
+              <div className="flex items-center gap-2 px-3.5 pt-3">
+                <Checkbox
+                  checked={isSelected}
+                  onCheckedChange={() => toggleSelect(lead.id)}
+                  onClick={(e) => e.stopPropagation()}
+                />
+                <button
+                  className="flex-1 flex items-start gap-2 text-left"
+                  onClick={() => toggle(lead.id)}
+                >
+                  {isExpanded ? (
+                    <ChevronDown className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[13px] font-medium leading-tight truncate">
+                      {lead.full_name || "—"}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground truncate">{lead.role || "—"}</p>
+                  </div>
+                  <ScorePill score={lead.score} />
+                </button>
+              </div>
+              <div className="px-3.5 pb-3.5 space-y-2.5 mt-2">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
@@ -641,89 +943,110 @@ function RunLeadsTable({
                     </p>
                     <p className="text-[12px] truncate">{lead.company_name || "—"}</p>
                   </div>
-                  {linkedin && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <a
-                          href={linkedin.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-md border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors shrink-0"
-                          aria-label="Open LinkedIn profile"
-                        >
-                          <Linkedin className="h-3.5 w-3.5" />
-                        </a>
-                      </TooltipTrigger>
-                      <TooltipContent side="top" className="text-[11px]">
-                        {linkedin.url}
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
+                  <div className="flex items-center gap-1 shrink-0">
+                    {linkedin && (
+                      <a
+                        href={linkedin.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border text-muted-foreground hover:text-foreground hover:bg-muted/40"
+                      >
+                        <Linkedin className="h-3.5 w-3.5" />
+                      </a>
+                    )}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void handleDeleteLead(lead.id);
+                      }}
+                      disabled={deleting.has(lead.id)}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-md border text-muted-foreground hover:text-red-600 hover:border-red-200 disabled:opacity-50"
+                    >
+                      {deleting.has(lead.id) ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  </div>
                 </div>
-
                 <div>
                   <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">
                     Email
                   </p>
                   <EmailCell email={lead.email} confidence={lead.email_confidence} />
                 </div>
-
                 <div onClick={(e) => e.stopPropagation()}>
                   <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">
                     Status
                   </p>
-                  <LeadStatusSelect
-                    leadId={lead.id}
-                    status={lead.outreach_status}
-                    onUpdate={onLeadUpdate}
-                  />
+                  <LeadStatusSelect lead={lead} jobId={jobId} onUpdate={onLeadUpdate} />
                 </div>
               </div>
-
               {isExpanded && <ExpandedLeadPanel lead={lead} />}
             </div>
           );
         })}
       </div>
 
+      {/* Desktop */}
       <div className="hidden md:block w-full overflow-x-auto px-2">
-        <Table className="min-w-[980px] table-fixed">
+        <Table className="min-w-[1020px] table-fixed">
           <TableHeader>
             <TableRow>
-              <TableHead className="w-8 pl-5 py-3.5" />
-              <TableHead className="w-[24%] px-5 py-3.5 text-[11px] font-medium uppercase tracking-wide">
+              <TableHead className="w-8 pl-5 py-3.5">
+                <Checkbox
+                  checked={allSelected}
+                  onCheckedChange={toggleAll}
+                  aria-label="Select all"
+                />
+              </TableHead>
+              <TableHead className="w-8 pl-1 py-3.5" />
+              <TableHead className="w-[23%] px-5 py-3.5 text-[11px] font-medium uppercase tracking-wide">
                 Contact
               </TableHead>
-              <TableHead className="w-[18%] px-5 py-3.5 text-[11px] font-medium uppercase tracking-wide">
+              <TableHead className="w-[17%] px-5 py-3.5 text-[11px] font-medium uppercase tracking-wide">
                 Company
               </TableHead>
-              <TableHead className="w-[26%] px-5 py-3.5 text-[11px] font-medium uppercase tracking-wide">
+              <TableHead className="w-[25%] px-5 py-3.5 text-[11px] font-medium uppercase tracking-wide">
                 Email
               </TableHead>
-              <TableHead className="w-24 px-5 py-3.5 text-[11px] font-medium uppercase tracking-wide">
+              <TableHead className="w-20 px-5 py-3.5 text-[11px] font-medium uppercase tracking-wide">
                 Score
               </TableHead>
-              <TableHead className="w-[180px] px-5 py-3.5 text-[11px] font-medium uppercase tracking-wide">
+              <TableHead className="w-[160px] px-5 py-3.5 text-[11px] font-medium uppercase tracking-wide">
                 Status
               </TableHead>
-              <TableHead className="w-24 px-6 py-3.5 text-[11px] font-medium uppercase tracking-wide text-center">
-                Link
+              <TableHead className="w-24 px-4 py-3.5 text-[11px] font-medium uppercase tracking-wide text-center">
+                Actions
               </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {leads.map((lead) => {
-              const linkedin = linkedinProfileFromHandle(lead.linkedin);
+            {filteredLeads.map((lead) => {
+              const linkedin = linkedinProfileFromHandle(lead.linkedin_url);
               const isExpanded = expanded.has(lead.id);
-
+              const isSelected = selected.has(lead.id);
               return (
                 <Fragment key={lead.id}>
                   <TableRow
-                    className="group hover:bg-muted/20 transition-colors cursor-pointer"
+                    className={cn(
+                      "group hover:bg-muted/20 cursor-pointer",
+                      isSelected && "bg-primary/5 hover:bg-primary/10",
+                    )}
                     onClick={() => toggle(lead.id)}
                   >
-                    <TableCell className="px-5 py-3.5 w-8">
+                    <TableCell
+                      className="px-5 py-3.5 w-8"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={() => toggleSelect(lead.id)}
+                      />
+                    </TableCell>
+                    <TableCell className="pl-1 py-3.5 w-8">
                       {isExpanded ? (
                         <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
                       ) : (
@@ -731,29 +1054,34 @@ function RunLeadsTable({
                       )}
                     </TableCell>
                     <TableCell className="px-5 py-3.5">
-                      <p className="text-[13px] font-medium leading-tight">{lead.name || "—"}</p>
-                      <p className="text-[11px] text-muted-foreground">{lead.title || ""}</p>
+                      <p className="text-[13px] font-medium leading-tight">
+                        {lead.full_name || "—"}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">{lead.role || ""}</p>
                     </TableCell>
                     <TableCell className="px-5 py-3.5 text-[13px]">
-                      <span className="block max-w-full truncate">
-                        {lead.company_name || "—"}
-                      </span>
+                      <span className="block truncate">{lead.company_name || "—"}</span>
                     </TableCell>
-                    <TableCell className="px-5 py-3.5" onClick={(e) => e.stopPropagation()}>
+                    <TableCell
+                      className="px-5 py-3.5"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <EmailCell email={lead.email} confidence={lead.email_confidence} />
                     </TableCell>
                     <TableCell className="px-5 py-3.5">
                       <ScorePill score={lead.score} />
                     </TableCell>
-                    <TableCell className="px-5 py-3.5" onClick={(e) => e.stopPropagation()}>
-                      <LeadStatusSelect
-                        leadId={lead.id}
-                        status={lead.outreach_status}
-                        onUpdate={onLeadUpdate}
-                      />
+                    <TableCell
+                      className="px-5 py-3.5"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <LeadStatusSelect lead={lead} jobId={jobId} onUpdate={onLeadUpdate} />
                     </TableCell>
-                    <TableCell className="px-6 py-3.5">
-                      <div className="flex justify-center pr-1">
+                    <TableCell
+                      className="px-4 py-3.5"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex justify-center gap-1">
                         {linkedin && (
                           <Tooltip>
                             <TooltipTrigger asChild>
@@ -761,24 +1089,39 @@ function RunLeadsTable({
                                 href={linkedin.url}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                onClick={(e) => e.stopPropagation()}
-                                className="inline-flex h-8 w-8 items-center justify-center rounded-md border text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
-                                aria-label="Open LinkedIn profile"
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-md border text-muted-foreground hover:text-foreground hover:bg-muted/40"
                               >
-                                <Linkedin className="h-3.5 w-3.5" />
+                                <Linkedin className="h-3 w-3" />
                               </a>
                             </TooltipTrigger>
-                            <TooltipContent side="top" className="text-[11px]">
-                              {linkedin.url}
-                            </TooltipContent>
+                            <TooltipContent className="text-[11px]">LinkedIn</TooltipContent>
                           </Tooltip>
                         )}
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void handleDeleteLead(lead.id);
+                              }}
+                              disabled={deleting.has(lead.id)}
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-md border text-muted-foreground hover:text-red-600 hover:border-red-200 disabled:opacity-50"
+                            >
+                              {deleting.has(lead.id) ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-3 w-3" />
+                              )}
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent className="text-[11px]">Delete lead</TooltipContent>
+                        </Tooltip>
                       </div>
                     </TableCell>
                   </TableRow>
                   {isExpanded && (
                     <TableRow>
-                      <TableCell colSpan={7} className="p-0">
+                      <TableCell colSpan={8} className="p-0">
                         <ExpandedLeadPanel lead={lead} />
                       </TableCell>
                     </TableRow>
@@ -793,7 +1136,120 @@ function RunLeadsTable({
   );
 }
 
-// ─── Launch dialog ────────────────────────────────────────────────────────────
+// ── Add to list dialog ─────────────────────────────────────────────
+
+type ContactListOption = { id: string; name: string };
+
+function AddToListDialog({
+  open,
+  leadIds,
+  onClose,
+}: {
+  open: boolean;
+  leadIds: number[];
+  onClose: () => void;
+}) {
+  const [lists, setLists] = useState<ContactListOption[]>([]);
+  const [selectedList, setSelectedList] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setSelectedList("");
+    setLoading(true);
+    void apiClient.contactListContract
+      .listContactLists()
+      .then((res) => {
+        if (res.status === 200) {
+          setLists(res.body.lists.map((l) => ({ id: l.id, name: l.name })));
+        }
+      })
+      .finally(() => setLoading(false));
+  }, [open]);
+
+  async function handleImport() {
+    if (!selectedList) return;
+    setSubmitting(true);
+    try {
+      const res = await apiClient.leadAgentContract.importLeads({
+        body: { listId: selectedList, leadIds },
+      });
+      if (res.status === 200) {
+        const { imported, skipped, errors } = res.body;
+        toast.success(
+          `${imported} imported, ${skipped} skipped${errors > 0 ? `, ${errors} errors` : ""}`,
+        );
+        onClose();
+      } else {
+        toast.error("Failed to import leads");
+      }
+    } catch {
+      toast.error("Failed to import leads");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="text-[15px] font-semibold tracking-tight">
+            Add {leadIds.length} lead{leadIds.length !== 1 ? "s" : ""} to list
+          </DialogTitle>
+        </DialogHeader>
+        <div className="py-2">
+          {loading ? (
+            <div className="flex items-center justify-center py-6">
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            </div>
+          ) : lists.length === 0 ? (
+            <p className="text-[13px] text-muted-foreground text-center py-4">
+              No contact lists found. Create one first.
+            </p>
+          ) : (
+            <div className="space-y-1.5">
+              <Label className="text-[12px]">Contact list</Label>
+              <Select value={selectedList} onValueChange={setSelectedList}>
+                <SelectTrigger className="h-8 text-[13px]">
+                  <SelectValue placeholder="Select a list…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {lists.map((l) => (
+                    <SelectItem key={l.id} value={l.id} className="text-[13px]">
+                      {l.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button
+            variant="ghost"
+            className="h-8 px-3 text-[13px]"
+            onClick={onClose}
+            disabled={submitting}
+          >
+            Cancel
+          </Button>
+          <Button
+            className="h-8 px-3 text-[13px]"
+            disabled={!selectedList || submitting || loading}
+            onClick={() => void handleImport()}
+          >
+            {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />}
+            Import
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Launch dialog ──────────────────────────────────────────────────
 
 const DEFAULT_FORM: RunCreatePayload = {
   industry: "",
@@ -801,9 +1257,9 @@ const DEFAULT_FORM: RunCreatePayload = {
   produto: "",
   target_titles: [],
   company_size: "10-100 funcionários",
-  max_leads: 50,
-  min_score: 7,
-  dry_run: true,
+  max_leads: 20,
+  min_score: 5,
+  max_companies: 30,
 };
 
 function LaunchDialog({
@@ -814,7 +1270,7 @@ function LaunchDialog({
 }: {
   open: boolean;
   onClose: () => void;
-  onLaunched: (run: RunSummary) => void;
+  onLaunched: (jobId: string, icp: Record<string, unknown>) => void;
   initialValues?: RunCreatePayload;
 }) {
   const [form, setForm] = useState<RunCreatePayload>(DEFAULT_FORM);
@@ -838,6 +1294,7 @@ function LaunchDialog({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (submitting) return;
     if (!form.industry || !form.geo || !form.produto) {
       toast.error("Industry, geo and product are required");
       return;
@@ -846,18 +1303,15 @@ function LaunchDialog({
     try {
       const payload: RunCreatePayload = {
         ...form,
-        target_titles: titlesRaw
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean),
+        target_titles: titlesRaw.split(",").map((s) => s.trim()).filter(Boolean),
       };
-      const run = await prospectingApi.createRun(payload);
+      const response = await leadAgentClient.createJob(payload);
       toast.success("Mission launched");
-      onLaunched(run);
+      onLaunched(response.job_id, payload as Record<string, unknown>);
       onClose();
       setForm(DEFAULT_FORM);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to launch run");
+      toast.error(err instanceof Error ? err.message : "Failed to launch mission");
     } finally {
       setSubmitting(false);
     }
@@ -894,7 +1348,6 @@ function LaunchDialog({
               />
             </div>
           </div>
-
           <div className="space-y-1.5">
             <Label className="text-[12px]">Product / Service *</Label>
             <Input
@@ -905,7 +1358,6 @@ function LaunchDialog({
               required
             />
           </div>
-
           <div className="space-y-1.5">
             <Label className="text-[12px]">Target titles (comma-separated)</Label>
             <Input
@@ -915,17 +1367,27 @@ function LaunchDialog({
               onChange={(e) => setTitlesRaw(e.target.value)}
             />
           </div>
-
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label className="text-[12px]">Company size</Label>
               <Input
                 className="h-8 text-[13px]"
-                placeholder="10-100 funcionários"
                 value={form.company_size ?? ""}
                 onChange={(e) => set("company_size", e.target.value)}
               />
             </div>
+            <div className="space-y-1.5">
+              <Label className="text-[12px]">Max companies</Label>
+              <Input
+                type="number"
+                className="h-8 text-[13px]"
+                min={1}
+                value={form.max_companies ?? 100}
+                onChange={(e) => set("max_companies", Number(e.target.value))}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label className="text-[12px]">Max leads</Label>
               <Input
@@ -949,18 +1411,6 @@ function LaunchDialog({
               />
             </div>
           </div>
-
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="dry_run"
-              checked={form.dry_run ?? true}
-              onCheckedChange={(v) => set("dry_run", Boolean(v))}
-            />
-            <Label htmlFor="dry_run" className="text-[13px] cursor-pointer">
-              Dry run (simulate outreach, don't send emails)
-            </Label>
-          </div>
-
           <DialogFooter>
             <Button
               type="button"
@@ -971,11 +1421,7 @@ function LaunchDialog({
             >
               Cancel
             </Button>
-            <Button
-              type="submit"
-              className="h-8 px-3 text-[13px]"
-              disabled={submitting}
-            >
+            <Button type="submit" className="h-8 px-3 text-[13px]" disabled={submitting}>
               {submitting ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
               ) : (
@@ -990,207 +1436,216 @@ function LaunchDialog({
   );
 }
 
-// ─── Main page ────────────────────────────────────────────────────────────────
+// ── Main page ──────────────────────────────────────────────────────
 
 type ResultTab = "companies" | "leads";
 
 export default function AgentPage() {
-  const [runs, setRuns] = useState<RunSummary[]>([]);
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
-  const [companies, setCompanies] = useState<CompanyItem[]>([]);
-  const [leads, setLeads] = useState<LeadItem[]>([]);
+  const [jobs, setJobs] = useState<JobSummary[]>([]);
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [companies, setCompanies] = useState<LeadCompany[]>([]);
+  const [leads, setLeads] = useState<AgentLead[]>([]);
   const [resultTab, setResultTab] = useState<ResultTab>("companies");
   const [showLaunch, setShowLaunch] = useState(false);
-  const [clonePayload, setClonePayload] = useState<RunCreatePayload | undefined>();
-  const [cancelling, setCancelling] = useState(false);
+  const [cloneIcp, setCloneIcp] = useState<RunCreatePayload | undefined>();
+  const [deletingJob, setDeletingJob] = useState(false);
+  const [addToListIds, setAddToListIds] = useState<number[]>([]);
 
-  // SSE state
+  // Polling state
   const [completedNodes, setCompletedNodes] = useState<Set<string>>(new Set());
   const [activeNode, setActiveNode] = useState<string | null>(null);
   const [nodeData, setNodeData] = useState<Record<string, Record<string, unknown>>>({});
-  const sseRef = useRef<EventSource | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollDelayRef = useRef<number>(2000);
 
-  const selectedRun = runs.find((r) => r.run_id === selectedRunId) ?? null;
+  const selectedJob = jobs.find((j) => j.id === selectedJobId) ?? null;
+  const isLive = selectedJob?.status === "queued" || selectedJob?.status === "pending" ||
+    (selectedJob?.status != null && !FINAL_STATUSES.has(selectedJob.status) && selectedJob.status !== "cancelled");
 
   useEffect(() => {
-    void loadRuns();
+    void loadJobs();
   }, []);
 
-  async function loadRuns() {
+  async function loadJobs() {
     try {
-      const data = await prospectingApi.listRuns({ limit: 50 });
-      setRuns(data);
+      const res = await apiClient.leadAgentContract.listJobs();
+      if (res.status === 200) setJobs(res.body.jobs);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load runs");
+      toast.error(err instanceof Error ? err.message : "Failed to load jobs");
     }
   }
 
-  const selectRun = useCallback(
-    async (run: RunSummary) => {
-      if (run.run_id === selectedRunId) return;
+  function stopPolling() {
+    if (pollTimerRef.current != null) {
+      clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+    pollDelayRef.current = 2000;
+  }
 
-      // Close existing SSE
-      sseRef.current?.close();
-      sseRef.current = null;
+  const selectJob = useCallback(
+    async (job: JobSummary) => {
+      if (job.id === selectedJobId) return;
+      stopPolling();
       setCompletedNodes(new Set());
       setActiveNode(null);
       setNodeData({});
       setCompanies([]);
       setLeads([]);
-      setSelectedRunId(run.run_id);
+      setSelectedJobId(job.id);
 
-      if (run.status === "completed" || run.status === "failed" || run.status === "cancelled") {
-        await loadRunResults(run.run_id);
+      if (FINAL_STATUSES.has(job.status) || job.status === "cancelled") {
+        await loadJobResults(job.id);
       } else {
-        openSSE(run.run_id);
+        startPolling(job.id);
       }
     },
-    [selectedRunId],
+    [selectedJobId], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
-  function openSSE(runId: string) {
-    const es = prospectingApi.openRunStream(runId);
-    sseRef.current = es;
+  function startPolling(jobId: string) {
+    pollDelayRef.current = 2000;
 
-    const nodeIds = PIPELINE_NODES.map((n) => n.id);
-
-    es.onmessage = (event) => {
+    async function poll() {
       try {
-        const parsed = JSON.parse(String(event.data)) as {
-          event: string;
-          node: string;
-          data: Record<string, unknown>;
-        };
+        const response = await leadAgentClient.getJobStatus(jobId);
+        const { status, progress, current_funnel_stage, stage_counts, total_leads } = response;
 
-        if (parsed.event === "node_complete") {
-          const nodeId = parsed.node as NodeId;
-          setCompletedNodes((prev) => new Set([...prev, nodeId]));
-          setNodeData((prev) => ({ ...prev, [nodeId]: parsed.data }));
-
-          const idx = nodeIds.indexOf(nodeId);
-          const next = idx >= 0 && idx + 1 < nodeIds.length ? nodeIds[idx + 1] : null;
-          setActiveNode(next);
-
-          setRuns((prev) =>
-            prev.map((r) =>
-              r.run_id === runId
-                ? {
-                    ...r,
-                    status: "running" as ProspectingRunStatus,
-                    metrics: (parsed.data?.run_metadata as RunSummary["metrics"]) ?? r.metrics,
-                  }
-                : r,
-            ),
-          );
-        }
-
-        if (parsed.event === "started") {
-          setActiveNode(nodeIds[0] ?? null);
-          setRuns((prev) =>
-            prev.map((r) =>
-              r.run_id === runId ? { ...r, status: "running" as ProspectingRunStatus } : r,
-            ),
-          );
-        }
-
-        if (parsed.event === "completed") {
-          es.close();
-          sseRef.current = null;
+        // derive completed + active nodes from current stage
+        const normalizedStage = normalizeStage(current_funnel_stage);
+        const stageIdx = normalizedStage ? STAGE_ORDER.indexOf(normalizedStage) : -1;
+        if (stageIdx >= 0 && normalizedStage) {
+          setCompletedNodes(new Set(STAGE_ORDER.slice(0, stageIdx)));
+          setActiveNode(normalizedStage);
+        } else if (status === "failed" || status === "completed" || status === "partial") {
           setActiveNode(null);
-          setCompletedNodes(new Set(nodeIds));
-          void finalizeRun(runId);
         }
 
-        if (parsed.event === "error" || parsed.event === "cancelled") {
-          es.close();
-          sseRef.current = null;
+        // populate nodeData from stage_counts for metadata display
+        setNodeData(buildNodeData(stage_counts, total_leads, progress));
+
+        setJobs((prev) =>
+          prev.map((j) =>
+            j.id === jobId
+              ? {
+                  ...j,
+                  status,
+                  progress: progress ?? null,
+                  current_funnel_stage: normalizedStage ?? current_funnel_stage ?? null,
+                }
+              : j,
+          ),
+        );
+
+        if (FINAL_STATUSES.has(status)) {
           setActiveNode(null);
-          const nextStatus = parsed.event === "cancelled" ? "cancelled" : "failed";
-          setRuns((prev) =>
-            prev.map((r) =>
-              r.run_id === runId ? { ...r, status: nextStatus as ProspectingRunStatus } : r,
-            ),
-          );
-          if (parsed.event === "error") {
-            const msg =
-              typeof parsed.data?.error === "string" ? parsed.data.error : "Agent error";
-            toast.error(msg);
-          }
+          if (status !== "failed") setCompletedNodes(new Set(STAGE_ORDER));
+          void finalizeJob(jobId);
+          return;
+        }
+
+        if (status === "cancelled") {
+          setActiveNode(null);
+          setJobs((prev) => prev.map((j) => (j.id === jobId ? { ...j, status: "cancelled" } : j)));
+          return;
         }
       } catch {
-        // ignore parse errors
+        // network error — retry with backoff
       }
-    };
 
-    es.onerror = () => {
-      // SSE closed or lost — don't retry automatically
-      es.close();
-      sseRef.current = null;
-    };
+      // 2s → 4s → 6s → 8s → 10s (capped)
+      pollTimerRef.current = setTimeout(() => void poll(), pollDelayRef.current);
+      pollDelayRef.current = Math.min(pollDelayRef.current + 2000, 10000);
+    }
+
+    pollTimerRef.current = setTimeout(() => void poll(), 2000);
   }
 
-  async function finalizeRun(runId: string) {
+  async function finalizeJob(jobId: string) {
     try {
-      const updated = await prospectingApi.getRun(runId);
-      setRuns((prev) => prev.map((r) => (r.run_id === runId ? updated : r)));
+      const res = await apiClient.leadAgentContract.getJob({ params: { jobId } });
+      if (res.status === 200) {
+        setJobs((prev) => prev.map((j) => (j.id === jobId ? res.body : j)));
+      }
     } catch {
       // ignore
     }
-    await loadRunResults(runId);
+    await loadJobResults(jobId);
   }
 
-  async function loadRunResults(runId: string) {
+  async function loadJobResults(jobId: string) {
     try {
-      const [coList, leadList] = await Promise.all([
-        prospectingApi.listRunCompanies(runId),
-        prospectingApi.listRunLeads(runId),
+      const [coRes, leadRes] = await Promise.all([
+        apiClient.leadAgentContract.listJobCompanies({ params: { jobId } }),
+        apiClient.leadAgentContract.listLeads({
+          params: { jobId },
+          query: { page: 1, limit: 200 },
+        }),
       ]);
-      setCompanies(coList);
-      setLeads(leadList);
+      if (coRes.status === 200) setCompanies(coRes.body.companies);
+      if (leadRes.status === 200) setLeads(leadRes.body.leads);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load results");
     }
   }
 
-  async function handleCancel() {
-    if (!selectedRunId) return;
-    setCancelling(true);
+  async function handleDeleteJob() {
+    if (!selectedJobId) return;
+    setDeletingJob(true);
     try {
-      await prospectingApi.cancelRun(selectedRunId);
-      sseRef.current?.close();
-      sseRef.current = null;
-      setActiveNode(null);
-      setRuns((prev) =>
-        prev.map((r) =>
-          r.run_id === selectedRunId ? { ...r, status: "cancelled" as ProspectingRunStatus } : r,
-        ),
-      );
-      toast.success("Run cancelled");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to cancel run");
+      const res = await apiClient.leadAgentContract.deleteJob({
+        params: { jobId: selectedJobId },
+        body: undefined,
+      });
+      if (res.status === 200) {
+        sseRef.current?.close();
+        sseRef.current = null;
+        setJobs((prev) => prev.filter((j) => j.id !== selectedJobId));
+        setSelectedJobId(null);
+        setCompanies([]);
+        setLeads([]);
+        toast.success("Run deleted");
+      } else {
+        toast.error("Failed to delete run");
+      }
+    } catch {
+      toast.error("Failed to delete run");
     } finally {
-      setCancelling(false);
+      setDeletingJob(false);
     }
   }
 
-  function handleLaunched(run: RunSummary) {
-    setRuns((prev) => [run, ...prev]);
-    void selectRun(run);
+  function handleLaunched(jobId: string, icp: Record<string, unknown>) {
+    const optimistic: JobSummary = {
+      id: jobId,
+      status: "pending",
+      icp,
+      progress: null,
+      current_funnel_stage: null,
+      metrics: null,
+      started_at: new Date(),
+      finished_at: null,
+    };
+    setJobs((prev) => [optimistic, ...prev]);
+    void selectJob(optimistic);
   }
 
-  function handleLeadUpdate(id: string, status: OutreachStatus) {
+  function handleLeadUpdate(id: number, status: string) {
     setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, outreach_status: status } : l)));
   }
 
-  // Cleanup SSE on unmount
-  useEffect(() => {
-    return () => {
-      sseRef.current?.close();
-    };
-  }, []);
+  function handleLeadDelete(id: number) {
+    setLeads((prev) => prev.filter((l) => l.id !== id));
+  }
 
-  const isLive =
-    selectedRun?.status === "pending" || selectedRun?.status === "running";
+  function handleCompanyDelete(id: number) {
+    setCompanies((prev) => prev.filter((company) => company.id !== id));
+    setLeads((prev) => prev.filter((lead) => lead.company_id !== id));
+  }
+
+  useEffect(() => {
+    return () => stopPolling();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="flex flex-1 h-full overflow-hidden">
@@ -1208,21 +1663,20 @@ export default function AgentPage() {
             + New
           </Button>
         </div>
-
         <div className="flex-1 overflow-y-auto">
-          {runs.length === 0 ? (
+          {jobs.length === 0 ? (
             <div className="px-3 py-6 text-center text-[12px] text-muted-foreground">
               No runs yet.
               <br />
               Launch your first mission.
             </div>
           ) : (
-            runs.map((run) => (
+            jobs.map((job) => (
               <RunListItem
-                key={run.run_id}
-                run={run}
-                active={run.run_id === selectedRunId}
-                onClick={() => void selectRun(run)}
+                key={job.id}
+                job={job}
+                active={job.id === selectedJobId}
+                onClick={() => void selectJob(job)}
               />
             ))
           )}
@@ -1231,15 +1685,15 @@ export default function AgentPage() {
 
       {/* Main panel */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {!selectedRun ? (
+        {!selectedJob ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center p-8">
             <div>
               <p className="text-[15px] font-semibold tracking-tight mb-1">
                 AI Prospecting Agent
               </p>
               <p className="text-[13px] text-muted-foreground max-w-xs">
-                Launch a mission to find and qualify leads. The agent will scout,
-                enrich, and score companies for outreach.
+                Launch a mission to find and qualify leads. The agent will scout, enrich, and score
+                companies for outreach.
               </p>
             </div>
             <Button className="h-8 px-4 text-[13px]" onClick={() => setShowLaunch(true)}>
@@ -1257,49 +1711,46 @@ export default function AgentPage() {
                     <span
                       className={cn(
                         "h-2 w-2 rounded-full shrink-0",
-                        statusDotClass(selectedRun.status),
+                        statusDotClass(selectedJob.status),
                       )}
                     />
                     <span className="text-[12px] text-muted-foreground capitalize">
-                      {selectedRun.status}
+                      {selectedJob.status}
                     </span>
                     <span className="text-[11px] font-mono text-muted-foreground">
-                      {selectedRun.run_id.slice(0, 8)}
+                      {selectedJob.id.slice(0, 8)}
                     </span>
                   </div>
-                  <p className="text-[15px] font-semibold tracking-tight">
-                    {icpLabel(selectedRun)}
-                  </p>
+                  <p className="text-[15px] font-semibold tracking-tight">{icpLabel(selectedJob)}</p>
                   <p className="text-[12px] text-muted-foreground mt-0.5">
-                    {fmtDate(selectedRun.started_at)}
-                    {selectedRun.finished_at &&
-                      ` → ${fmtDate(selectedRun.finished_at)}`}
+                    {fmtDate(selectedJob.started_at)}
+                    {selectedJob.finished_at && ` → ${fmtDate(selectedJob.finished_at)}`}
                   </p>
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">
-                  {selectedRun.metrics && (
+                  {selectedJob.metrics && (
                     <div className="flex gap-4 text-right">
-                      {selectedRun.metrics.leads_found != null && (
+                      {selectedJob.metrics.leads_found != null && (
                         <div>
                           <p className="text-[18px] font-semibold tabular-nums leading-none">
-                            {selectedRun.metrics.leads_found}
+                            {selectedJob.metrics.leads_found}
                           </p>
                           <p className="text-[11px] text-muted-foreground">found</p>
                         </div>
                       )}
-                      {selectedRun.metrics.leads_qualified != null && (
+                      {selectedJob.metrics.leads_qualified != null && (
                         <div>
                           <p className="text-[18px] font-semibold tabular-nums leading-none">
-                            {selectedRun.metrics.leads_qualified}
+                            {selectedJob.metrics.leads_qualified}
                           </p>
                           <p className="text-[11px] text-muted-foreground">qualified</p>
                         </div>
                       )}
-                      {selectedRun.metrics.avg_score != null && (
+                      {selectedJob.metrics.avg_score != null && (
                         <div>
                           <p className="text-[18px] font-semibold tabular-nums leading-none">
-                            {selectedRun.metrics.avg_score.toFixed(1)}
+                            {selectedJob.metrics.avg_score.toFixed(1)}
                           </p>
                           <p className="text-[11px] text-muted-foreground">avg score</p>
                         </div>
@@ -1312,7 +1763,7 @@ export default function AgentPage() {
                       size="sm"
                       className="h-7 px-3 text-[12px]"
                       onClick={() => {
-                        setClonePayload(icpToPayload(selectedRun.icp));
+                        setCloneIcp(icpToPayload(selectedJob.icp));
                         setShowLaunch(true);
                       }}
                     >
@@ -1320,25 +1771,32 @@ export default function AgentPage() {
                       Reuse params
                     </Button>
                   )}
-                  {isLive && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 px-3 text-[12px]"
-                      onClick={() => void handleCancel()}
-                      disabled={cancelling}
-                    >
-                      <X className="h-3 w-3 mr-1" />
-                      Cancel
-                    </Button>
-                  )}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 w-7 p-0 text-muted-foreground hover:text-red-600 hover:border-red-200"
+                        onClick={() => void handleDeleteJob()}
+                        disabled={deletingJob}
+                      >
+                        {deletingJob ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3 w-3" />
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="text-[11px]">
+                      Delete run
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
               </div>
             </div>
 
             {/* Body */}
             {isLive ? (
-              /* Pipeline tracker */
               <div className="flex-1 overflow-y-auto p-5">
                 <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mb-3">
                   Pipeline
@@ -1350,9 +1808,7 @@ export default function AgentPage() {
                 />
               </div>
             ) : (
-              /* Results tabs */
               <div className="flex-1 flex flex-col overflow-hidden">
-                {/* Tab bar */}
                 <div className="flex border-b px-5 shrink-0">
                   {(["companies", "leads"] as ResultTab[]).map((tab) => (
                     <button
@@ -1371,12 +1827,21 @@ export default function AgentPage() {
                     </button>
                   ))}
                 </div>
-
                 <div className="flex-1 overflow-y-auto">
                   {resultTab === "companies" ? (
-                    <RunCompaniesTable companies={companies} />
+                    <RunCompaniesTable
+                      companies={companies}
+                      jobId={selectedJobId!}
+                      onCompanyDelete={handleCompanyDelete}
+                    />
                   ) : (
-                    <RunLeadsTable leads={leads} onLeadUpdate={handleLeadUpdate} />
+                    <RunLeadsTable
+                      leads={leads}
+                      jobId={selectedJobId!}
+                      onLeadUpdate={handleLeadUpdate}
+                      onLeadDelete={handleLeadDelete}
+                      onAddToList={(ids) => setAddToListIds(ids)}
+                    />
                   )}
                 </div>
               </div>
@@ -1387,9 +1852,18 @@ export default function AgentPage() {
 
       <LaunchDialog
         open={showLaunch}
-        onClose={() => { setShowLaunch(false); setClonePayload(undefined); }}
+        onClose={() => {
+          setShowLaunch(false);
+          setCloneIcp(undefined);
+        }}
         onLaunched={handleLaunched}
-        initialValues={clonePayload}
+        initialValues={cloneIcp}
+      />
+
+      <AddToListDialog
+        open={addToListIds.length > 0}
+        leadIds={addToListIds}
+        onClose={() => setAddToListIds([])}
       />
     </div>
   );

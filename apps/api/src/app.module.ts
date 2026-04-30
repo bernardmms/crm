@@ -16,6 +16,7 @@ import { CampaignDataModule } from 'src/campaign-data/campaign-data.module';
 import { EmailCampaignModule } from 'src/email-campaign/email-campaign.module';
 import { FlowModule } from 'src/flow/flow.module';
 import { UnsubscribeModule } from 'src/unsubscribe/unsubscribe.module';
+import { LeadAgentModule } from 'src/lead-agent/lead-agent.module';
 import { PrismaExceptionFilter } from 'src/prisma/prisma-exception.filter';
 import z from 'zod';
 
@@ -62,6 +63,7 @@ const validate = (config: Record<string, unknown>) => {
     EmailCampaignModule,
     FlowModule,
     UnsubscribeModule,
+    LeadAgentModule,
   ],
   controllers: [AppController],
   providers: [

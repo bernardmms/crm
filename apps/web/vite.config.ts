@@ -12,4 +12,9 @@ export default defineConfig({
       "@repo/ui": path.resolve(__dirname, "../../packages/ui/src"),
     },
   },
+  test: {
+    environment: "node",
+    include: ["src/**/*.test.ts"],
+    globals: true,
+  },
 });

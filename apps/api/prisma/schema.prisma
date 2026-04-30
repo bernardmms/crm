@@ -167,6 +167,7 @@ model Contact {
   listEntries     ContactListEntry[]
   campaignEmails  EmailCampaignContact[]
   flowEnrollments FlowEnrollment[]
+  agentLeadLinks AgentLeadContact[]
 
   @@map("contact")
   @@schema("we-crm")
@@ -372,5 +373,158 @@ model FlowEnrollment {
 
   @@unique([flowId, contactId])
   @@map("flow_enrollment")
+  @@schema("we-crm")
+}
+
+// ── Lead Agent tables ──────────────────────────────────────────────
+
+model EnrichmentJob {
+  id                  String    @id
+  jobName             String?
+  status              String
+  progress            Float?
+  icpJson             Json?
+  icpRaw              String?
+  error               String?
+  currentFunnelStage  String?
+  stageCounts         Json?
+  metricsJson         Json?
+  createdAt           DateTime  @default(now())
+  finishedAt          DateTime?
+  updatedAt           DateTime  @updatedAt
+
+  companies          LeadCompany[]
+  leads              AgentLead[]
+  leadContacts       AgentLeadContact[]
+  funnelStageEvents  FunnelStageEvent[]
+  evidenceRecords    EvidenceRecord[]
+
+  @@map("enrichment_job")
+  @@schema("we-crm")
+}
+
+model LeadCompany {
+  id            Int           @id @default(autoincrement())
+  jobId         String
+  job           EnrichmentJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  name          String?
+  domain        String?
+  website       String?
+  sector        String?
+  icpFitScore   Float?
+  disqualified  Boolean       @default(false)
+  linkedinUrl   String?
+  instagram     String?
+  facebook      String?
+  email         String?
+  phone         String?
+  address       String?
+  city          String?
+  state         String?
+  zipCode       String?
+  domainAgeDays Int?
+  technologies  String[]      @default([])
+  source        String?
+  profileJson   Json?
+  enrichedAt    DateTime?
+
+  leads         AgentLead[]
+
+  @@index([jobId])
+  @@index([domain])
+  @@unique([jobId, id])
+  @@map("lead_company")
+  @@schema("we-crm")
+}
+
+model AgentLead {
+  id               Int           @id @default(autoincrement())
+  jobId            String
+  job              EnrichmentJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  companyId        Int?
+  company          LeadCompany?  @relation(fields: [jobId, companyId], references: [jobId, id])
+  fullName         String?
+  role             String?
+  email            String?
+  emailConfidence  Float?
+  emailVerified    Boolean?
+  phone            String?
+  linkedinUrl      String?
+  instagram        String?
+  outreachStatus   String        @default("pending")
+  outreachAngle    String?
+  score            Float?
+  scoreReason      String?
+  bantJson         Json?
+  redFlags         String[]       @default([])
+  emailSubject     String?
+  emailBody        String?
+  followUp1        String?
+  followUp2        String?
+  hubspotContactId String?
+  leadJson         Json?
+  discoveredAt     DateTime?
+  contactLinks     AgentLeadContact[]
+
+  @@index([jobId])
+  @@index([companyId])
+  @@index([email])
+  @@index([linkedinUrl])
+  @@unique([jobId, id])
+  @@map("agent_lead")
+  @@schema("we-crm")
+}
+
+model AgentLeadContact {
+  id          Int           @id @default(autoincrement())
+  jobId       String
+  job         EnrichmentJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  agentLeadId Int
+  agentLead   AgentLead     @relation(fields: [jobId, agentLeadId], references: [jobId, id], onDelete: Cascade)
+  contactId   String
+  contact     Contact       @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  matchedBy   String[]      @default([])
+  createdAt   DateTime      @default(now())
+
+  @@unique([agentLeadId, contactId])
+  @@index([jobId])
+  @@index([agentLeadId])
+  @@index([contactId])
+  @@map("agent_lead_contact")
+  @@schema("we-crm")
+}
+
+model FunnelStageEvent {
+  id           Int          @id @default(autoincrement())
+  jobId        String
+  job          EnrichmentJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  stage        String?
+  eventType    String?
+  entityType   String?
+  entityKey    String?
+  reasonCode   String?
+  reasonDetail String?
+  createdAt    DateTime     @default(now())
+
+  @@index([jobId])
+  @@map("funnel_stage_event")
+  @@schema("we-crm")
+}
+
+model EvidenceRecord {
+  id          Int          @id @default(autoincrement())
+  jobId       String
+  job         EnrichmentJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  entityType  String?
+  entityKey   String?
+  sourceUrl   String?
+  title       String?
+  snippet     String?
+  signalType  String?
+  confidence  Float?
+  capturedAt  DateTime?
+
+  @@index([jobId])
+  @@map("evidence_record")
   @@schema("we-crm")
 }

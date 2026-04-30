@@ -155,6 +155,9 @@ model Contact {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  unsubscribedAt    DateTime?
+  unsubscribeReason UnsubscribeReason?
+
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -166,6 +169,16 @@ model Contact {
   flowEnrollments FlowEnrollment[]
 
   @@map("contact")
+  @@schema("we-crm")
+}
+
+enum UnsubscribeReason {
+  NOT_INTERESTED
+  TOO_FREQUENT
+  NEVER_SUBSCRIBED
+  NOT_RELEVANT
+  OTHER
+
   @@schema("we-crm")
 }
 

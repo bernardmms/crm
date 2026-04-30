@@ -524,10 +524,16 @@ export class FlowService {
   private async executeEmailNode(contactId: string, node: FlowNode) {
     const contact = await prisma.contact.findUnique({
       where: { id: contactId },
-      select: { email: true, firstName: true },
+      select: { email: true, firstName: true, unsubscribedAt: true },
     });
 
     if (!contact?.email) return;
+    if (contact.unsubscribedAt) {
+      this.logger.log(
+        `Skipping flow email to ${contact.email} — contact unsubscribed`,
+      );
+      return;
+    }
 
     const config = this.asConfig(node);
     const subject = config.subject as string | undefined;
@@ -539,9 +545,10 @@ export class FlowService {
       to: contact.email,
       subject,
       htmlContent,
+      contactId,
     });
 
-    if (!result.success) {
+    if (!result.success && !result.skipped) {
       this.logger.warn(
         `Failed to send flow email to ${contact.email}: ${result.error}`,
       );

@@ -252,13 +252,16 @@ export class EmailCampaignService {
     }
 
     const contactsWithEmail = campaign.contactList.entries.filter(
-      (entry) => entry.contact.email,
+      (entry) => entry.contact.email && !entry.contact.unsubscribedAt,
     );
 
     if (contactsWithEmail.length === 0) {
       return {
         status: 400 as const,
-        body: { message: 'No contacts with email addresses in the selected list' },
+        body: {
+          message:
+            'No deliverable contacts in the selected list (all contacts are missing an email or have unsubscribed)',
+        },
       };
     }
 
@@ -366,6 +369,7 @@ export class EmailCampaignService {
         to: entry.contact.email,
         subject,
         htmlContent,
+        contactId: entry.contact.id,
       });
 
       await prisma.emailCampaignContact.updateMany({
@@ -376,11 +380,13 @@ export class EmailCampaignService {
         data: {
           status: result.success ? 'SENT' : 'FAILED',
           sentAt: result.success ? new Date() : null,
-          errorMessage: result.error ?? null,
+          errorMessage:
+            result.error ??
+            (result.skipped === 'unsubscribed' ? 'Contact unsubscribed' : null),
         },
       });
 
-      if (!result.success) {
+      if (!result.success && !result.skipped) {
         allSucceeded = false;
       }
     }

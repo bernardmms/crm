@@ -28,4 +28,10 @@ export class FlowScheduler {
       await this.flowService.enrollNewContacts(flow.id);
     }
   }
+
+  @Cron(CronExpression.EVERY_MINUTE)
+  async handleAiAgentRunPolling() {
+    this.logger.debug('Polling pending AI agent runs...');
+    await this.flowService.pollPendingAiAgentRuns();
+  }
 }

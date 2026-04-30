@@ -272,6 +272,7 @@ enum FlowStatus {
   ACTIVE
   PAUSED
   ARCHIVED
+  FAILED
 
   @@schema("we-crm")
 }

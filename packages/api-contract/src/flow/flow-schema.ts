@@ -1,6 +1,49 @@
 import z from "zod";
 
-export const flowStatusEnum = z.enum(["DRAFT", "ACTIVE", "PAUSED", "ARCHIVED"]);
+export const flowStatusEnum = z.enum([
+  "DRAFT",
+  "ACTIVE",
+  "PAUSED",
+  "ARCHIVED",
+  "FAILED",
+]);
+
+export const aiAgentRunStatusEnum = z.enum([
+  "pending",
+  "running",
+  "completed",
+  "failed",
+  "cancelled",
+]);
+
+export const aiAgentParamsSchema = z.object({
+  industry: z.string().min(1),
+  geo: z.string().min(1),
+  produto: z.string().min(1),
+  target_titles: z.array(z.string()).optional(),
+  company_size: z.string().optional(),
+  max_leads: z.number().int().min(1).max(200).optional(),
+  min_score: z.number().min(0).max(10).optional(),
+  dry_run: z.boolean().optional(),
+});
+
+export const listSourceConfigSchema = z.discriminatedUnion("mode", [
+  z.object({
+    mode: z.literal("LIST"),
+    contactListId: z.string().optional(),
+    contactListName: z.string().optional(),
+  }),
+  z.object({
+    mode: z.literal("AI_AGENT"),
+    agentParams: aiAgentParamsSchema.optional(),
+    aiAgentRunId: z.string().optional(),
+    aiAgentRunStatus: aiAgentRunStatusEnum.optional(),
+    contactListId: z.string().optional(),
+    contactListName: z.string().optional(),
+    runIndex: z.number().int().optional(),
+    failureReason: z.string().optional(),
+  }),
+]);
 export const flowNodeTypeEnum = z.enum(["LIST_SOURCE", "SEND_EMAIL", "WAIT"]);
 export const flowEnrollmentStatusEnum = z.enum(["ACTIVE", "COMPLETED", "FAILED"]);
 

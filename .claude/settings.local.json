@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python .claude/skills/ui-ux-pro-max/scripts/search.py \"B2B SaaS CRM prospecting dashboard data-dense professional\" --design-system -p \"Stemis Prospecting\" -f markdown)",
+      "Bash(xargs grep *)"
+    ]
+  }
+}

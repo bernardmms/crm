@@ -77,6 +77,16 @@ export default function FlowEditorPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isActing, setIsActing] = useState(false);
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
+  const [panelWidth, setPanelWidth] = useState<number>(() => {
+    try {
+      const v = typeof window !== "undefined" ? localStorage.getItem("flowPanelWidth") : null;
+      return v ? Number(v) : 420;
+    } catch {
+      return 420;
+    }
+  });
+  const startXRef = useRef<number | null>(null);
+  const startWidthRef = useRef<number | null>(null);
 
   const isDraft = flow?.status === "DRAFT";
   const isActive = flow?.status === "ACTIVE";
@@ -372,13 +382,53 @@ export default function FlowEditorPage() {
         </div>
 
         {selectedNode && (
-          <div className="w-72 shrink-0 border-l bg-background overflow-hidden">
-            <NodeConfigPanel
-              node={selectedNode}
-              onConfigChange={handleConfigChange}
-              onClose={() => setSelectedNode(null)}
+          <>
+            <div
+              role="separator"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                startXRef.current = e.clientX;
+                startWidthRef.current = panelWidth;
+
+                const previousUserSelect = document.body.style.userSelect;
+                const previousCursor = document.body.style.cursor;
+                document.body.style.userSelect = "none";
+                document.body.style.cursor = "col-resize";
+
+                const onMouseMove = (ev: MouseEvent) => {
+                  if (startXRef.current == null || startWidthRef.current == null) return;
+                  const delta = ev.clientX - startXRef.current;
+                  const newWidth = Math.max(320, Math.min(900, startWidthRef.current - delta));
+                  setPanelWidth(newWidth);
+                  try {
+                    localStorage.setItem("flowPanelWidth", String(newWidth));
+                  } catch {}
+                };
+
+                const onMouseUp = () => {
+                  startXRef.current = null;
+                  startWidthRef.current = null;
+                  document.body.style.userSelect = previousUserSelect;
+                  document.body.style.cursor = previousCursor;
+                  window.removeEventListener("mousemove", onMouseMove);
+                  window.removeEventListener("mouseup", onMouseUp);
+                };
+
+                window.addEventListener("mousemove", onMouseMove);
+                window.addEventListener("mouseup", onMouseUp);
+              }}
+              className="w-2 cursor-col-resize shrink-0 hover:bg-border"
+              style={{ touchAction: "none" }}
             />
-          </div>
+
+            <div style={{ width: panelWidth }} className="shrink-0 border-l bg-background overflow-hidden">
+              <NodeConfigPanel
+                node={selectedNode}
+                onConfigChange={handleConfigChange}
+                onClose={() => setSelectedNode(null)}
+              />
+            </div>
+          </>
         )}
       </div>
     </div>

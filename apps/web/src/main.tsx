@@ -9,7 +9,6 @@ import HomePage from "@/modules/common/pages/HomePage";
 import ContactsPage from "@/modules/contacts/pages/ContactsPage";
 import ContactListsPage from "@/modules/contact-lists/pages/ContactListsPage";
 import UsersPage from "@/modules/admin/users/UsersPage";
-import CampaignsPage from "@/modules/prospecting/pages/CampaignsPage";
 import ProspectingSearchPage from "@/modules/prospecting/pages/ProspectingSearchPage";
 import { NewOrganizationPage } from "@/modules/organizations/pages/NewOrganizationPage";
 import { OrgSettingsPage } from "@/modules/organizations/pages/OrgSettingsPage";
@@ -33,7 +32,6 @@ createRoot(document.getElementById("root")!).render(
             <Route path="/email" element={<EmailCampaignsPage />} />
             <Route path="/flows" element={<FlowsPage />} />
             <Route path="/flows/:id/edit" element={<FlowEditorPage />} />
-            <Route path="/prospecting/campaigns" element={<CampaignsPage />} />
             <Route path="/prospecting/search" element={<ProspectingSearchPage />} />
             <Route path="/prospecting/agent" element={<AgentPage />} />
             <Route

@@ -1,8 +1,5 @@
 import useAuth from "@/modules/auth/hooks/useAuth";
-import { formatCampaignStatus } from "@/modules/prospecting/helpers";
 import { OrgSwitcher } from "@/modules/organizations/components/OrgSwitcher";
-import { apiClient } from "@/lib/api-client";
-import type { CampaignRecord } from "@/modules/prospecting/types";
 import { NavMain } from "@repo/ui/components/nav-main";
 import { NavUser } from "@repo/ui/components/nav-user";
 import {
@@ -12,9 +9,9 @@ import {
   SidebarHeader,
   SidebarRail,
 } from "@repo/ui/components/ui/sidebar";
-import { Bot, Contact, GitBranch, List, Mail, Search, Target, Users } from "lucide-react";
+import { Bot, Contact, GitBranch, List, Mail, Search, Users } from "lucide-react";
 import * as React from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 
 const navAdmin = [
   {
@@ -34,28 +31,9 @@ export default function AppSidebar({
   ...props
 }: React.ComponentProps<typeof Sidebar>) {
   const { user, logout } = useAuth();
-  const [campaigns, setCampaigns] = useState<CampaignRecord[]>([]);
   const isAdmin = Array.isArray(user?.role)
     ? user.role.includes("admin")
     : user?.role === "admin";
-
-  useEffect(() => {
-    void loadSidebarCampaigns();
-  }, []);
-
-  async function loadSidebarCampaigns() {
-    try {
-      const response = await apiClient.campaignDataContract.listCampaigns({
-        query: { page: 1, limit: 30 },
-      });
-
-      if (response.status === 200) {
-        setCampaigns(response.body.campaigns);
-      }
-    } catch (error) {
-      console.error(error);
-    }
-  }
 
   const navUser = useMemo(
     () => [
@@ -104,24 +82,6 @@ export default function AppSidebar({
         ],
       },
       {
-        title: "Campaigns",
-        url: "/prospecting/campaigns",
-        icon: Target,
-        items: [
-          ...(campaigns.length > 0
-            ? campaigns.map((campaign) => ({
-                title: formatCampaignSidebarTitle(campaign),
-                url: `/prospecting/campaigns?campaignId=${campaign.id}&tab=companies`,
-              }))
-            : [
-                {
-                  title: "View campaigns",
-                  url: "/prospecting/campaigns",
-                },
-              ]),
-        ],
-      },
-      {
         title: "Search",
         url: "/prospecting/search",
         icon: Search,
@@ -148,7 +108,7 @@ export default function AppSidebar({
         ],
       },
     ],
-    [campaigns],
+    [],
   );
 
   return (
@@ -181,12 +141,4 @@ export default function AppSidebar({
       <SidebarRail />
     </Sidebar>
   );
-}
-
-function formatCampaignSidebarTitle(campaign: CampaignRecord) {
-  const campaignName = campaign.campaignName.trim();
-  const truncatedName =
-    campaignName.length > 22 ? `${campaignName.slice(0, 22)}...` : campaignName;
-  const status = formatCampaignStatus(campaign.status);
-  return `${truncatedName} (${status})`;
 }

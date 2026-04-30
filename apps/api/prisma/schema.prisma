@@ -24,10 +24,10 @@ model User {
   sessions      Session[]
   accounts      Account[]
 
-  contacts     Contact[]
-  contactLists ContactList[]
+  contacts       Contact[]
+  contactLists   ContactList[]
   emailCampaigns EmailCampaign[]
-  flows        Flow[]
+  flows          Flow[]
 
   members         Member[]
   invitationsSent Invitation[] @relation("invitations_sent")
@@ -103,10 +103,10 @@ model Organization {
   members     Member[]
   invitations Invitation[]
 
-  contacts     Contact[]
-  contactLists ContactList[]
+  contacts       Contact[]
+  contactLists   ContactList[]
   emailCampaigns EmailCampaign[]
-  flows        Flow[]
+  flows          Flow[]
 
   @@map("organization")
   @@schema("we-crm")
@@ -161,8 +161,8 @@ model Contact {
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  listEntries    ContactListEntry[]
-  campaignEmails EmailCampaignContact[]
+  listEntries     ContactListEntry[]
+  campaignEmails  EmailCampaignContact[]
   flowEnrollments FlowEnrollment[]
 
   @@map("contact")
@@ -224,15 +224,15 @@ enum EmailSendStatus {
 }
 
 model EmailCampaign {
-  id            String              @id
-  name          String
-  subject       String
-  htmlContent   String
-  status        EmailCampaignStatus @default(DRAFT)
-  scheduledAt   DateTime?
-  sentAt        DateTime?
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
+  id          String              @id
+  name        String
+  subject     String
+  htmlContent String
+  status      EmailCampaignStatus @default(DRAFT)
+  scheduledAt DateTime?
+  sentAt      DateTime?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
 
   contactListId String
   contactList   ContactList @relation(fields: [contactListId], references: [id], onDelete: Cascade)
@@ -293,21 +293,21 @@ enum FlowEnrollmentStatus {
 }
 
 model Flow {
-  id             String     @id
-  name           String
-  status         FlowStatus @default(DRAFT)
-  createdAt      DateTime   @default(now())
-  updatedAt      DateTime   @updatedAt
+  id        String     @id
+  name      String
+  status    FlowStatus @default(DRAFT)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 
-  userId         String
-  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  nodes          FlowNode[]
-  edges          FlowEdge[]
-  enrollments    FlowEnrollment[]
+  nodes       FlowNode[]
+  edges       FlowEdge[]
+  enrollments FlowEnrollment[]
 
   @@map("flow")
   @@schema("we-crm")

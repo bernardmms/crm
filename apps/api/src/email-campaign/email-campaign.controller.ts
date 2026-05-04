@@ -1,4 +1,4 @@
-import { Controller } from '@nestjs/common';
+import { Controller, Logger } from '@nestjs/common';
 import { contract } from '@repo/api-contract';
 import { Roles } from '@thallesp/nestjs-better-auth';
 import { TsRestHandler, tsRestHandler } from '@ts-rest/nest';
@@ -12,6 +12,8 @@ import { AiEmailService } from './ai-email.service';
 @Controller()
 @Roles(['user', 'admin'])
 export class EmailCampaignController {
+  private readonly logger = new Logger(EmailCampaignController.name);
+
   constructor(
     private readonly emailCampaignService: EmailCampaignService,
     private readonly orgService: OrganizationService,
@@ -174,10 +176,15 @@ export class EmailCampaignController {
         try {
           const result = await this.aiEmailService.generateEmailContent(body);
           return { status: 200 as const, body: result };
-        } catch {
+        } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : 'Failed to generate email content';
+          this.logger.error(`generateEmailContent failed: ${message}`, error instanceof Error ? error.stack : undefined);
           return {
             status: 500 as const,
-            body: { message: 'Failed to generate email content' },
+            body: { message },
           };
         }
       },
